@@ -1,3 +1,4 @@
+
 #include <assert.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -6,13 +7,12 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
-
 #include <chrono>
 #include <thread>
-// #include "evpp/logging.h"
+#include "evpp/logging.h"
 
 int gDebugTimeCached_time = 1;
-int gDebugTimeCached_clock_gettime = 1;
+int gDebugTimeCached_clock_gettime = 0;
 int gDebugTimeCached_gettimeofday = 1;
 
 template <typename TYPE, void (TYPE::*Run)()>
@@ -149,32 +149,20 @@ int cached_clock_gettime(clockid_t __clock_id, struct timespec *__tp) {
 int main() {
   gCTimeThread = new CTimeThread();
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-  for (int i = 0; i < 1; i++) {
+  for (int i = 0; i < 20; i++) {
     std::thread tthread([&]() {
       thread_local int64_t prev_time;
-      struct timespec prev_ts;
-      struct timespec ts;
       while (1) {
-        if (cached_clock_gettime(CLOCK_REALTIME, &ts) != 0) {
-          return 0;
+        for (int j = 0; j < 10000; j++) {
+          struct timespec ts;
+          if (cached_clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+            return 0;
+          }
+          int64_t curr_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+          CHECK(curr_time >= prev_time)
+              << "prev_time=" << prev_time << " curr_time=" << curr_time;
+          prev_time = curr_time;
         }
-        int64_t curr_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-        if (curr_time < prev_time) {
-          printf(
-              "prev_time %lld curr_time    %lld           prev_ts: "
-              "%10ld-%10ld              ts: "
-              "%10ld-%10ld \r\n",
-              prev_time, curr_time, prev_ts.tv_sec, prev_ts.tv_nsec, ts.tv_sec,
-              ts.tv_nsec);
-        };
-        // printf("=========prev_time %lld curr_time %lld \r\n", prev_time,
-        // curr_time);
-        //   CHECK(curr_time >= prev_time)
-        //       << "prev_time=" << prev_time << " curr_time=" << curr_time;
-        prev_time = curr_time;
-        prev_ts = ts;
-
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
     });
@@ -182,18 +170,16 @@ int main() {
   }
   thread_local int64_t prev_time;
   while (1) {
-    // for (int j = 0; j < 10000; j++) {
-    //   struct timespec ts;
-    //   if (cached_clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-    //     return 0;
-    //   }
-    //   int64_t curr_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-    //   if (curr_time < prev_time) {
-    //     printf("prev_time : %lld  curr_time: %lld \r\n", curr_time,
-    //     prev_time);
-    //   }
-    //   prev_time = curr_time;
-    // }
+    for (int j = 0; j < 10000; j++) {
+      struct timespec ts;
+      if (cached_clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+      }
+      int64_t curr_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+      CHECK(curr_time >= prev_time)
+          << "prev_time=" << prev_time << " curr_time=" << curr_time;
+      prev_time = curr_time;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   return 0;
