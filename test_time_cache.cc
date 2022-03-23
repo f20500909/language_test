@@ -12,11 +12,12 @@
 #include <mutex>
 #include <thread>
 
+int gDebugDoFixBug = 1;
+
 int gDebugTimeCached_time = 1;
 int gDebugTimeCached_clock_gettime = 1;
 int gDebugTimeCached_gettimeofday = 1;
-
-int gDebugDoFixBug = 0;
+uint64_t gDebugPrintFrequfency = 1e8;
 
 template <typename TYPE, void (TYPE::*Run)()>
 void *thread_rounter(void *param) {
@@ -50,9 +51,9 @@ class CTimeThread {
  private:
   void do_update_time();
 
-  uint64_t transform_time_to_integer(timeval tv);
+  uint64_t transform_time_to_integer(const timeval &tv);
 
-  uint64_t transform_time_to_integer(timespec tp);
+  uint64_t transform_time_to_integer(const timespec &tp);
 
   struct timeval _tv;
 
@@ -60,12 +61,14 @@ class CTimeThread {
 
   timespec _tp_realtime;
 
-  uint32_t _interval__nsec;
+  uint64_t _interval__nsec;
 
   pthread_t _thread;
+
+  uint64_t prev_time = 0;
 };
 
-CTimeThread::CTimeThread() : _interval__nsec(10) {
+CTimeThread::CTimeThread() : _interval__nsec(1e6) {
   this->do_update_time();
 
   pthread_attr_t attr;
@@ -83,11 +86,14 @@ CTimeThread::CTimeThread() : _interval__nsec(10) {
 CTimeThread::~CTimeThread() {}
 
 void CTimeThread::do_update_time() {
+  prev_time = transform_time_to_integer(_tp_realtime);
   syscall(__NR_gettimeofday, &_tv, NULL);
 
   // TODO merge two clock_gettime to one syscall
   syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &_tp_monotonic);
   syscall(__NR_clock_gettime, CLOCK_REALTIME, &_tp_realtime);
+
+//   prev_time = transform_time_to_integer(_tp_realtime);
 }
 
 void CTimeThread::run() {
@@ -96,7 +102,7 @@ void CTimeThread::run() {
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = _interval__nsec;
-    assert(_interval__nsec < 1e6);
+    assert(_interval__nsec <= 1e7);  // one millisecond
     while ((-1 == nanosleep(&ts, &ts)))
       ;
   }
@@ -110,12 +116,13 @@ time_t CTimeThread::cached_time(time_t *__timer) {
   return _tv.tv_sec;
 }
 
-uint64_t CTimeThread::transform_time_to_integer(timeval tv) {
-  return uint64_t(tv.tv_sec) * 1e9 + uint64_t(tv.tv_usec) * 1e3;
+uint64_t CTimeThread::transform_time_to_integer(const timeval &tv) {
+  return uint64_t(tv.tv_sec) * uint64_t(1e9) +
+         uint64_t(tv.tv_usec) * uint64_t(1e3);
 }
 
-uint64_t CTimeThread::transform_time_to_integer(timespec tp) {
-  return uint64_t(tp.tv_sec) * 1e9 + uint64_t(tp.tv_nsec);
+uint64_t CTimeThread::transform_time_to_integer(const timespec &tp) {
+  return uint64_t(tp.tv_sec) * uint64_t(1e9) + uint64_t(tp.tv_nsec);
 }
 
 int CTimeThread::cached_gettimeofday(timeval *tv) {
@@ -124,18 +131,26 @@ int CTimeThread::cached_gettimeofday(timeval *tv) {
     return 0;
   }
 
-  uint64_t prev_time = 0;
   uint64_t cur_time = 0;
 
   while (true) {
-    prev_time = uint64_t(tv->tv_sec) * 1e9 + uint64_t(tv->tv_usec) * 1e3;
     // ========= Critical section start =========
-    __sync_bool_compare_and_swap(&(tv->tv_sec), tv->tv_sec, _tv.tv_sec);
-    __sync_bool_compare_and_swap(&(tv->tv_usec), tv->tv_usec, _tv.tv_usec);
+    __sync_bool_compare_and_swap(&(tv->tv_sec), tv->tv_sec, this->_tv.tv_sec);
+    __sync_bool_compare_and_swap(&(tv->tv_usec), tv->tv_usec,
+                                 this->_tv.tv_usec);
     // ========= Critical section end =========
-    cur_time = uint64_t(tv->tv_sec) * 1e9 + uint64_t(tv->tv_usec) * 1e3;
-    if (cur_time > prev_time) {
+    cur_time = this->transform_time_to_integer(*tv);
+    if (cur_time > this->prev_time) {
       break;
+    } else {
+    //   printf(
+    //       "[Resolve Conflicts][prev_time %lld cur_time   %lld] "
+    //       "[prev_ts: %lld-%lld      ts: "
+    //       "%lld-%lld] !!!! \r\n",
+    //       prev_time, cur_time, prev_time / (uint64_t)(1e9),
+    //       prev_time % (uint64_t)(1e9) / (uint64_t)(1e3),
+    //       cur_time / (uint64_t)(1e9),
+    //       cur_time % (uint64_t)(1e9) / (uint64_t)(1e3));
     }
   }
 
@@ -157,27 +172,24 @@ int CTimeThread::cached_clock_gettime(clockid_t clock_id, struct timespec *tp) {
     return 0;
   }
 
-  uint64_t prev_time = 0;
   uint64_t cur_time = 0;
-
   while (true) {
-    // prev_time = transform_time_to_integer(*tp);
     // ========= Critical section start =========
     if (CLOCK_MONOTONIC == clock_id) {
       __sync_bool_compare_and_swap(&(tp->tv_sec), tp->tv_sec,
-                                   _tp_realtime.tv_sec);
+                                   this->_tp_realtime.tv_sec);
       __sync_bool_compare_and_swap(&(tp->tv_nsec), tp->tv_nsec,
-                                   _tp_realtime.tv_nsec);
+                                   this->_tp_realtime.tv_nsec);
 
     } else if (CLOCK_REALTIME == clock_id) {
       __sync_bool_compare_and_swap(&(tp->tv_sec), tp->tv_sec,
-                                   _tp_realtime.tv_sec);
+                                   this->_tp_realtime.tv_sec);
       __sync_bool_compare_and_swap(&(tp->tv_nsec), tp->tv_nsec,
-                                   _tp_realtime.tv_nsec);
+                                   this->_tp_realtime.tv_nsec);
     }
     // ========= Critical section end =========
-    // cur_time = transform_time_to_integer(*tp);
-    if (cur_time >= prev_time) {
+    cur_time = transform_time_to_integer(*tp);
+    if (cur_time > this->prev_time) {
       break;
       return 0;
     }
@@ -229,10 +241,7 @@ void test_cached_time() {
 
   while (1) {
     for (int i = 0; i < 10000; i++) {
-      if (cached_time(&timer) != 0) {
-        printf("!!!!!!!!!! cached_time error!\r\n");
-        return;
-      }
+      cached_time(&timer);
 
       if (cur_time < prev_time) {
         printf(
@@ -253,11 +262,11 @@ void test_cached_time() {
       prev_time = cur_time;
 
       cnt++;
-      if (cnt & (1 << 20) == (1 << 20)) {
+      if ((cnt % gDebugPrintFrequfency) == 0) {
         printf("cnt: %lld\r\n", cnt);
       }
     }
-    std::this_thread::sleep_for(std::chrono::microseconds(10));
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
   }
 }
 
@@ -276,7 +285,7 @@ void test_cached_gettimeofday() {
         return;
       }
 
-      cur_time = uint64_t(ts.tv_sec) * 1e6 + uint64_t(ts.tv_usec);
+      cur_time = uint64_t(ts.tv_sec) * 1e9 + uint64_t(ts.tv_usec) * 1e3;
 
       if (cur_time < prev_time) {
         printf(
@@ -289,8 +298,7 @@ void test_cached_gettimeofday() {
             (uint64_t)ts.tv_usec);
       } else {
         // printf(
-        //     "[test_cached_gettimeofday][prev_cnt :%lld cnt: %lld ] [prev_time
-        //     "
+        //     "[test_cached_gettimeofday][prev_cnt :%lld cnt: %lld ] [prev_time "
         //     "%lld cur_time   %lld] "
         //     "[prev_ts: %lld-%lld      ts: "
         //     "%lld-%lld]  \r\n",
@@ -303,11 +311,11 @@ void test_cached_gettimeofday() {
       prev_ts = ts;
 
       cnt++;
-      if (cnt & (1 << 20) == (1 << 20)) {
+      if ((cnt % gDebugPrintFrequfency) == 0) {
         printf("cnt: %lld\r\n", cnt);
       }
     }
-    // std::this_thread::sleep_for(std::chrono::microseconds(10));
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
   }
 }
 
@@ -353,36 +361,33 @@ void test_cached_clock_gettime() {
       prev_ts = ts;
 
       cnt++;
-      if (cnt & (1 << 20) == (1 << 20)) {
+      if ((cnt % gDebugPrintFrequfency) == 0) {
         printf("cnt: %lld\r\n", cnt);
       }
     }
-    std::this_thread::sleep_for(std::chrono::microseconds(10));
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
   }
 }
 
 int main() {
-//   showPlatform();
+  showPlatform();
 
-//   gCTimeThread = new CTimeThread();
-//   std::this_thread::sleep_for(std::chrono::milliseconds(200));
-//   //   for (int i = 0; i < 1; i++) {
-//   //     std::thread tthread(test_cached_time);
-//   //     tthread.detach();
-//   //   }
+  gCTimeThread = new CTimeThread();
+  //   for (int i = 0; i < 10; i++) {
+  //     std::thread tthread(test_cached_time);
+  //     tthread.detach();
+  //   }
 
-//   for (int i = 0; i < 1; i++) {
-//     std::thread tthread(test_cached_gettimeofday);
-//     tthread.detach();
-//   }
+  for (int i = 0; i < 10; i++) {
+    std::thread tthread(test_cached_gettimeofday);
+    tthread.detach();
+  }
 
-//   //   for (int i = 0; i < 1; i++) {
-//   //     std::thread tthread(test_cached_clock_gettime);
-//   //     tthread.detach();
-//   //   }
+  //   for (int i = 0; i < 10; i++) {
+  //     std::thread tthread(test_cached_clock_gettime);
+  //     tthread.detach();
+  //   }
 
-//   while (1) {
-//     std::this_thread::sleep_for(std::chrono::milliseconds(1));
-//   }
+  std::this_thread::sleep_for(std::chrono::seconds(uint64_t(1e9)));
   return 0;
 }
