@@ -4,12 +4,12 @@ project(temp_test CXX)
 
 add_compile_options(-g)
 
-# add_compile_options(-m32)
 add_compile_options(-std=c++11 )
 
-# set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -m32")
-# set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m32")
-# set(CMAKE_MODULE_LINKER_FLAGS  "${CMAKE_MODULE_LINKER_FLAGS} -m32")
+add_compile_options(-m32)
+set(cmake_exe_linker_flags  "${cmake_exe_linker_flags} -m32")
+set(cmake_shared_linker_flags  "${cmake_shared_linker_flags} -m32")
+# set(cmake_module_linker_flaGS  "${CMAKE_MODULE_LINKER_FLAGS} -m32")
 
 
 # include_directories(/mnt/hgfs/main_work/temp_test/cpp_test/lib) 

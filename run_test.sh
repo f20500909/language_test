@@ -1,6 +1,7 @@
 clear
 
 ulimit -c unlimited 
+
 rm -rf ./core*
 basepath=$(cd `dirname $0`; pwd)
 # project_name=CSCF_dev_tata_bulkcall_sip_ua
