@@ -32,6 +32,6 @@ cmake ..&&make
 # ./time_benchmark 3
 # ./time_thread  1000
 
-time ./test_time_cache
+time ./cur_test
 
 

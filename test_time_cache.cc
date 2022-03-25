@@ -26,6 +26,11 @@ int gDebugTimeCached_clock_gettime = 1;
 int gDebugTimeCached_gettimeofday = 1;
 uint64_t gDebugPrintFrequfency = 1e9;
 
+//一毫秒 = 1 * 1000 * 1000;
+
+int gCachedNsec = 1 * 1000;
+int gCachedNsecTolerance = 2 * 1000 * 1000;
+
 template <typename TYPE, void (TYPE::*Run)()>
 void *thread_rounter(void *param) {
   TYPE *p = (TYPE *)param;
@@ -45,6 +50,31 @@ void showPlatform() {
   printf("UINT64_MAX : %llu\r\n", UINT64_MAX);
 }
 
+uint64_t transform_time_to_uint64(const timeval &tv) {
+  return uint64_t(tv.tv_sec) * uint64_t(1e9) +
+         uint64_t(tv.tv_usec) * uint64_t(1e3);
+}
+
+uint64_t transform_time_to_uint64(const timespec &tp) {
+  return uint64_t(tp.tv_sec) * uint64_t(1e9) + uint64_t(tp.tv_nsec);
+}
+
+void transform_uint64_to_time(uint64_t time_uint64, timespec &tp) {
+  tp.tv_sec = time_uint64 / uint64_t(1e9);
+  tp.tv_nsec = time_uint64 % uint64_t(1e9);
+}
+
+void transform_uint64_to_time(uint64_t time_uint64, timeval &tv) {
+  tv.tv_sec = time_uint64 / uint64_t(1e9);
+  tv.tv_usec = (time_uint64 % uint64_t(1e9)) / (uint64_t(1e3));
+  return;
+}
+
+void transform_uint64_to_time_t(uint64_t time_uint64, time_t &t) {
+  t = time_uint64 / uint64_t(1e9);
+  return;
+}
+
 // use cache to reduce system call in i386
 class CTimeThread {
  public:
@@ -54,31 +84,22 @@ class CTimeThread {
   void run();
 
   time_t cached_time(time_t *__timer);
+
   int cached_gettimeofday(timeval *tv);
   int cached_clock_gettime(clockid_t clock_id, struct timespec *tp);
 
  private:
   void do_update_time();
 
-  uint64_t transform_time_to_integer(const timeval &tv);
-
-  uint64_t transform_time_to_integer(const timespec &tp);
-
-  struct timeval _tv;
-
-  timespec _tp_monotonic;
-
-  timespec _tp_realtime;
-
   uint64_t _interval__nsec;
 
   pthread_t _thread;
 
-  volatile uint64_t _tp_prev_time = 0;
-  volatile uint64_t _tp_dirty_prev_time = 0;
+  uint64_t _time_monotonic = 0;
+  uint64_t _time_realtime = 0;
 };
 
-CTimeThread::CTimeThread() : _interval__nsec(1e7) {
+CTimeThread::CTimeThread() : _interval__nsec(gCachedNsec) {
   this->do_update_time();
 
   pthread_attr_t attr;
@@ -96,28 +117,19 @@ CTimeThread::CTimeThread() : _interval__nsec(1e7) {
 CTimeThread::~CTimeThread() {}
 
 void CTimeThread::do_update_time() {
-  // tp and tv must
-  _tp_prev_time = _tp_dirty_prev_time;
-
-  __sync_bool_compare_and_swap(&_tp_prev_time, _tp_prev_time,
-                               _tp_dirty_prev_time);
-
-  _tp_dirty_prev_time = transform_time_to_integer(_tp_realtime);
-
-  syscall(__NR_gettimeofday, &_tv, NULL);
+  timespec tp_monotonic;
+  timespec tp_realtime;
 
   // TODO merge two clock_gettime to one syscall
-  syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &_tp_monotonic);
-  syscall(__NR_clock_gettime, CLOCK_REALTIME, &_tp_realtime);
-  //   prev_time = transform_time_to_integer(_tp_realtime);
+  syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &tp_monotonic);
+  syscall(__NR_clock_gettime, CLOCK_REALTIME, &tp_realtime);
 
-  // printf(
-  //     "[do_update_time] "
-  //     "[_tp_prev_time: %llu    _tp_dirty_prev_time: %llu] "
-  //     "[ts: %llu-%llu] !!!! \r\n",
+  __atomic_store_n(&_time_monotonic, transform_time_to_uint64(tp_monotonic),
+                   __ATOMIC_RELAXED);
+  __atomic_store_n(&_time_realtime, transform_time_to_uint64(tp_realtime),
+                   __ATOMIC_RELAXED);
 
-  //     _tp_prev_time, _tp_dirty_prev_time, (uint64_t)_tp_realtime.tv_sec,
-  //     (uint64_t)_tp_realtime.tv_nsec);
+  // printf("[do_update_time] [_cur_time: %llu] \r\n", _cur_time);
 }
 
 void CTimeThread::run() {
@@ -133,98 +145,41 @@ void CTimeThread::run() {
 }
 
 time_t CTimeThread::cached_time(time_t *__timer) {
-  if (!__timer) {
-    return _tv.tv_sec;
-  }
-  *__timer = _tv.tv_sec;
-  return _tv.tv_sec;
-}
+  uint64_t time_uint64 = 0;
+  time_t t = 0;
 
-uint64_t CTimeThread::transform_time_to_integer(const timeval &tv) {
-  return uint64_t(tv.tv_sec) * uint64_t(1e9) +
-         uint64_t(tv.tv_usec) * uint64_t(1e3);
-}
+  __atomic_load(&this->_time_realtime, &time_uint64, __ATOMIC_ACQUIRE);
+  transform_uint64_to_time_t(time_uint64, t);
+  assert(0 != t);
 
-uint64_t CTimeThread::transform_time_to_integer(const timespec &tp) {
-  return uint64_t(tp.tv_sec) * uint64_t(1e9) + uint64_t(tp.tv_nsec);
+  *__timer = t;
+  return t;
 }
 
 int CTimeThread::cached_gettimeofday(timeval *tv) {
-  if (!gDebugFixBugTrigger) {
-    if (tv) *tv = _tv;
-    return 0;
-  }
+  assert(tv);
+  uint64_t t = 0;
+  __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
+  transform_uint64_to_time(t, *tv);
 
-  uint64_t cur_time = 0;
-  uint64_t prev_time = 0;
-
-
-  while (true) {
-    // ========= Critical section start =========
-    while (!__sync_bool_compare_and_swap(&(tv->tv_sec), tv->tv_sec, this->_tv.tv_sec)) ;
-    while (!__sync_bool_compare_and_swap(&(tv->tv_usec), tv->tv_usec, this->_tv.tv_usec)) ;
-    cur_time = this->transform_time_to_integer(*tv);
-    prev_time = this->_tp_prev_time;
-    // ========= Critical section end =========
-
-    //一次同时成功，并且 时间更新正确
-    if (cur_time > prev_time) {
-      break;
-    } else {
-      if (gDebugShowResolveConflictsTrigger) {
-        printf(
-            "[Resolve Conflicts][prev_time %llu cur_time   %llu] "
-            "[prev_ts: %llu-%llu      ts: %llu-%llu] \r\n",
-            prev_time, cur_time, prev_time / (uint64_t)(1e9),
-            prev_time % (uint64_t)(1e9) / (uint64_t)(1e3),
-            cur_time / (uint64_t)(1e9),
-            cur_time % (uint64_t)(1e9) / (uint64_t)(1e3));
-      }
-    }
-  }
-
-  return 0;
+  if (0 == t) return -1;  // failure
+  return 0;               // success
 }
 
 int CTimeThread::cached_clock_gettime(clockid_t clock_id, struct timespec *tp) {
-  if (!tp) return -1;
+  assert(tp);
+  if (!tp) return -1;  // failure
 
-  if (!gDebugFixBugTrigger) {
-    if (CLOCK_MONOTONIC == clock_id) {
-      *tp = _tp_monotonic;
-      return 0;
-    } else if (CLOCK_REALTIME == clock_id) {
-      *tp = _tp_realtime;
-      return 0;
-    }
+  uint64_t t = 0;
 
-    return 0;
-  }
-
-  uint64_t cur_time = 0;
-  uint64_t prev_time = this->_tp_prev_time;
-  bool update_sec_res = false;
-  bool update_nsec_res = false;
-  while (true) {
-    // ========= Critical section start =========
-    if (CLOCK_MONOTONIC == clock_id) {
-      update_sec_res = __sync_bool_compare_and_swap(&(tp->tv_sec), tp->tv_sec,
-                                                    this->_tp_realtime.tv_sec);
-      update_nsec_res = __sync_bool_compare_and_swap(
-          &(tp->tv_nsec), tp->tv_nsec, this->_tp_realtime.tv_nsec);
-
-    } else if (CLOCK_REALTIME == clock_id) {
-      update_sec_res = __sync_bool_compare_and_swap(&(tp->tv_sec), tp->tv_sec,
-                                                    this->_tp_realtime.tv_sec);
-      update_nsec_res = __sync_bool_compare_and_swap(
-          &(tp->tv_nsec), tp->tv_nsec, this->_tp_realtime.tv_nsec);
-    }
-    cur_time = transform_time_to_integer(*tp);
-    // ========= Critical section end =========
-    if (update_sec_res && update_nsec_res && cur_time > prev_time) {
-      break;
-      return 0;
-    }
+  if (CLOCK_MONOTONIC == clock_id) {
+    __atomic_load(&this->_time_monotonic, &t, __ATOMIC_ACQUIRE);
+    transform_uint64_to_time(this->_time_monotonic, *tp);
+    return 0;  // success
+  } else if (CLOCK_REALTIME == clock_id) {
+    __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
+    transform_uint64_to_time(t, *tp);
+    return 0;  // success
   }
   return ::clock_gettime(clock_id, tp);
 }
@@ -233,7 +188,6 @@ CTimeThread *gCTimeThread = nullptr;
 
 unsigned int cached_time(time_t *__timer) {
   assert(gCTimeThread);
-
   if (gDebugTimeCached_time) {
     if (!__timer) return 0;
     return (unsigned int)(gCTimeThread->cached_time(__timer));
@@ -242,12 +196,12 @@ unsigned int cached_time(time_t *__timer) {
   return ((unsigned int)::time(__timer));
 };
 
-int cached_gettimeofday(struct timeval *__tv) {
+int cached_gettimeofday(timeval *tv) {
   assert(gCTimeThread);
   if (gDebugTimeCached_gettimeofday) {
-    return gCTimeThread->cached_gettimeofday(__tv);
+    return gCTimeThread->cached_gettimeofday(tv);
   } else {
-    return ::gettimeofday(__tv, NULL);
+    return ::gettimeofday(tv, NULL);
   }
 }
 
@@ -260,35 +214,46 @@ int cached_clock_gettime(clockid_t __clock_id, struct timespec *__tp) {
   }
 }
 
+
+int cached_clock_gettime(clockid_t __clock_id, struct timespec *__tp) {
+  assert(gCTimeThread);
+  if (gDebugTimeCached_clock_gettime) {
+    return gCTimeThread->cached_clock_gettime(__clock_id, __tp);
+  } else {
+    return ::clock_gettime(__clock_id, __tp);
+  }
+}
+
 void test_cached_time(int thread_id) {
   thread_local uint64_t prev_time = 0;
+  thread_local uint64_t cur_time = 0;
+  thread_local uint64_t sys_cur_time = 0;
   thread_local uint64_t prev_cnt = 0;
   thread_local uint64_t cnt = 0;
+  thread_local int64_t sys_diff_time = 0;
 
   time_t timer;
-
-  time_t cur_time = 0;
-  time_t perv_time = 0;
 
   while (1) {
     for (int i = 0; i < 10000; i++) {
       cur_time = cached_time(&timer);
+      sys_cur_time = ::time(&timer);
 
-      if (cur_time < prev_time) {
+      sys_diff_time = cur_time - sys_cur_time;
+
+      if (cur_time < prev_time || (abs(sys_diff_time) >= gCachedNsecTolerance)) {
         printf(
-            "[test_cached_time][prev_cnt :%llu cnt: %llu ] [prev_time %llu "
-            "cur_time    "
-            "%llu] "
+            "[test_cached_time][prev_cnt :%llu cnt: %llu ]"
+            "[prev_time %llu cur_time    %llu sys_diff_time %lld] "
             " !!!! \r\n",
-            prev_cnt, cnt, prev_time, cur_time);
+            prev_cnt, cnt, prev_time, cur_time, sys_diff_time);
       } else {
         if (gDebugShowMoreLog)
           printf(
-              "[test_cached_time][prev_cnt :%llu cnt: %llu ] [prev_time %llu "
-              "cur_time    "
-              "%llu] "
+              "[test_cached_time][prev_cnt :%llu cnt: %llu ]"
+              "[prev_time %llu cur_time    %llu sys_diff_time %lld] "
               " \r\n",
-              prev_cnt, cnt, prev_time, cur_time);
+              prev_cnt, cnt, prev_time, cur_time, sys_diff_time);
       };
       prev_cnt = cnt;
       prev_time = cur_time;
@@ -306,45 +271,52 @@ void test_cached_time(int thread_id) {
 void test_cached_gettimeofday(int thread_id) {
   thread_local uint64_t prev_time = 0;
   thread_local uint64_t cur_time = 0;
+  thread_local uint64_t sys_cur_time = 0;
   thread_local uint64_t prev_cnt = 0;
   thread_local uint64_t cnt = 0;
+  thread_local int64_t sys_diff_time = 0;
 
   thread_local struct timeval prev_ts;
-  thread_local struct timeval ts;
+  thread_local struct timeval tv;
   while (1) {
     for (int i = 0; i < 10000; i++) {
-      if (cached_gettimeofday(&ts) != 0) {
+      if (::gettimeofday(&tv, NULL) != 0) {
+        printf("!!!!!!!!!! gettimeofday error!\r\n");
+        return;
+      }
+      sys_cur_time = transform_time_to_uint64(tv);
+
+      if (cached_gettimeofday(&tv) != 0) {
         printf("!!!!!!!!!! cached_gettimeofday error!\r\n");
         return;
       }
+      cur_time = transform_time_to_uint64(tv);
 
-      cur_time = uint64_t(ts.tv_sec) * 1e9 + uint64_t(ts.tv_usec) * 1e3;
+      sys_diff_time = cur_time - sys_cur_time;
 
-      if (cur_time < prev_time) {
+      if (cur_time < prev_time || (abs(sys_diff_time) >= gCachedNsecTolerance)) {
         printf(
             "[test_cached_gettimeofday i:%d][prev_cnt :%llu cnt: %llu ] "
-            "[prev_time "
-            "%llu cur_time   %llu] "
-            "[prev_ts: %llu-%llu      ts: "
+            "[prev_time %llu cur_time  %llu sys_diff_time  %lld]] "
+            "[prev_ts: %llu-%llu      tv: "
             "%llu-%llu] !!!! \r\n",
-            i, prev_cnt, cnt, prev_time, cur_time, (uint64_t)prev_ts.tv_sec,
-            (uint64_t)prev_ts.tv_usec, (uint64_t)ts.tv_sec,
-            (uint64_t)ts.tv_usec);
+            i, prev_cnt, cnt, prev_time, cur_time, sys_diff_time,
+            (uint64_t)prev_ts.tv_sec, (uint64_t)prev_ts.tv_usec,
+            (uint64_t)tv.tv_sec, (uint64_t)tv.tv_usec);
       } else {
         if (gDebugShowMoreLog)
           printf(
               "[test_cached_gettimeofday i:%d][prev_cnt :%llu cnt: %llu ] "
-              "[prev_time "
-              "%llu cur_time   %llu] "
-              "[prev_ts: %llu-%llu      ts: "
+              "[prev_time %llu cur_time  %llu sys_diff_time  %lld]] "
+              "[prev_ts: %llu-%llu      tv: "
               "%llu-%llu] \r\n",
-              i, prev_cnt, cnt, prev_time, cur_time, (uint64_t)prev_ts.tv_sec,
-              (uint64_t)prev_ts.tv_usec, (uint64_t)ts.tv_sec,
-              (uint64_t)ts.tv_usec);
+              i, prev_cnt, cnt, prev_time, cur_time, sys_diff_time,
+              (uint64_t)prev_ts.tv_sec, (uint64_t)prev_ts.tv_usec,
+              (uint64_t)tv.tv_sec, (uint64_t)tv.tv_usec);
       };
       prev_cnt = cnt;
       prev_time = cur_time;
-      prev_ts = ts;
+      prev_ts = tv;
 
       cnt++;
       if ((cnt % gDebugPrintFrequfency) == 0) {
@@ -358,41 +330,47 @@ void test_cached_gettimeofday(int thread_id) {
 
 void test_cached_clock_gettime(int thread_id) {
   thread_local uint64_t prev_time = 0;
+  thread_local uint64_t sys_cur_time = 0;
   thread_local uint64_t cur_time = 0;
   thread_local uint64_t prev_cnt = 0;
   thread_local uint64_t cnt = 0;
+  thread_local int64_t sys_diff_time = 0;
 
   struct timespec prev_ts;
   struct timespec ts;
   while (1) {
     for (int i = 0; i < 10000; i++) {
+      if (::clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        printf("!!!!!!!!!! cached_clock_gettime error!\r\n");
+        return;
+      }
+      sys_cur_time = transform_time_to_uint64(ts);
+
       if (cached_clock_gettime(CLOCK_REALTIME, &ts) != 0) {
         printf("!!!!!!!!!! cached_clock_gettime error!\r\n");
         return;
       }
+      cur_time = transform_time_to_uint64(ts);
 
-      cur_time = uint64_t(ts.tv_sec) * 1e9 + uint64_t(ts.tv_nsec);
+      sys_diff_time = cur_time - sys_cur_time;
 
-      if (cur_time < prev_time) {
+      if (cur_time < prev_time || (abs(sys_diff_time) >= gCachedNsecTolerance)) {
         printf(
-            "[test_cached_clock_gettime][prev_cnt :%llu cnt: %llu ] [prev_time "
-            "%llu cur_time    "
-            "%llu] "
+            "[test_cached_clock_gettime][prev_cnt :%llu cnt: %llu ]"
+            " [prev_time %llu cur_time    %llu sys_diff_time    %lld] "
             "[prev_ts: %llu-%llu      ts: %llu-%llu] !!!! \r\n",
-            prev_cnt, cnt, prev_time, cur_time, (uint64_t)prev_ts.tv_sec,
-            (uint64_t)prev_ts.tv_nsec, (uint64_t)ts.tv_sec,
-            (uint64_t)ts.tv_nsec);
+            prev_cnt, cnt, prev_time, cur_time, sys_diff_time,
+            (uint64_t)prev_ts.tv_sec, (uint64_t)prev_ts.tv_nsec,
+            (uint64_t)ts.tv_sec, (uint64_t)ts.tv_nsec);
       } else {
         if (gDebugShowMoreLog)
           printf(
-              "[test_cached_clock_gettime][prev_cnt :%llu cnt: %llu ] "
-              "[prev_time "
-              "%llu cur_time    "
-              "%llu] "
+              "[test_cached_clock_gettime][prev_cnt :%llu cnt: %llu ]"
+              " [prev_time %llu cur_time    %llu sys_diff_time    %lld] "
               "[prev_ts: %llu-%llu      ts: %llu-%llu] \r\n",
-              prev_cnt, cnt, prev_time, cur_time, (uint64_t)prev_ts.tv_sec,
-              (uint64_t)prev_ts.tv_nsec, (uint64_t)ts.tv_sec,
-              (uint64_t)ts.tv_nsec);
+              prev_cnt, cnt, prev_time, cur_time, sys_diff_time,
+              (uint64_t)prev_ts.tv_sec, (uint64_t)prev_ts.tv_nsec,
+              (uint64_t)ts.tv_sec, (uint64_t)ts.tv_nsec);
       };
       prev_cnt = cnt;
       prev_time = cur_time;
@@ -412,20 +390,21 @@ int main() {
   showPlatform();
 
   gCTimeThread = new CTimeThread();
+
   // for (int i = 0; i < 10; i++) {
   //   std::thread tthread(test_cached_time, i);
   //   tthread.detach();
   // }
 
-  for (int i = 0; i < 100; i++) {
-    std::thread tthread(test_cached_gettimeofday, i);
-    tthread.detach();
-  }
-
-  // for (int i = 0; i < 10; i++) {
-  //   std::thread tthread(test_cached_clock_gettime, i);
+  // for (int i = 0; i < 1; i++) {
+  //   std::thread tthread(test_cached_gettimeofday, i);
   //   tthread.detach();
   // }
+
+  for (int i = 0; i < 1; i++) {
+    std::thread tthread(test_cached_clock_gettime, i);
+    tthread.detach();
+  }
 
   std::this_thread::sleep_for(std::chrono::seconds(uint64_t(1e9)));
   return 0;
