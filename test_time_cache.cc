@@ -29,7 +29,7 @@ uint64_t gDebugPrintFrequfency = 1e9;
 //一毫秒 = 1 * 1000 * 1000;
 
 int gCachedNsec = 1 * 1000;
-int gCachedNsecTolerance = 2 * 1000 * 1000;
+int gCachedNsecTolerance = 200 * 1000 * 1000;
 
 template <typename TYPE, void (TYPE::*Run)()>
 void *thread_rounter(void *param) {
@@ -184,7 +184,7 @@ int CTimeThread::cached_clock_gettime(clockid_t clock_id, struct timespec *tp) {
   return ::clock_gettime(clock_id, tp);
 }
 
-CTimeThread *gCTimeThread = nullptr;
+CTimeThread *gCTimeThread = NULL;
 
 unsigned int cached_time(time_t *__timer) {
   assert(gCTimeThread);
@@ -214,16 +214,6 @@ int cached_clock_gettime(clockid_t __clock_id, struct timespec *__tp) {
   }
 }
 
-
-int cached_clock_gettime(clockid_t __clock_id, struct timespec *__tp) {
-  assert(gCTimeThread);
-  if (gDebugTimeCached_clock_gettime) {
-    return gCTimeThread->cached_clock_gettime(__clock_id, __tp);
-  } else {
-    return ::clock_gettime(__clock_id, __tp);
-  }
-}
-
 void test_cached_time(int thread_id) {
   thread_local uint64_t prev_time = 0;
   thread_local uint64_t cur_time = 0;
@@ -241,7 +231,7 @@ void test_cached_time(int thread_id) {
 
       sys_diff_time = cur_time - sys_cur_time;
 
-      if (cur_time < prev_time || (abs(sys_diff_time) >= gCachedNsecTolerance)) {
+      if (cur_time < prev_time ) {
         printf(
             "[test_cached_time][prev_cnt :%llu cnt: %llu ]"
             "[prev_time %llu cur_time    %llu sys_diff_time %lld] "
@@ -294,7 +284,7 @@ void test_cached_gettimeofday(int thread_id) {
 
       sys_diff_time = cur_time - sys_cur_time;
 
-      if (cur_time < prev_time || (abs(sys_diff_time) >= gCachedNsecTolerance)) {
+      if (cur_time < prev_time ) {
         printf(
             "[test_cached_gettimeofday i:%d][prev_cnt :%llu cnt: %llu ] "
             "[prev_time %llu cur_time  %llu sys_diff_time  %lld]] "
@@ -354,7 +344,7 @@ void test_cached_clock_gettime(int thread_id) {
 
       sys_diff_time = cur_time - sys_cur_time;
 
-      if (cur_time < prev_time || (abs(sys_diff_time) >= gCachedNsecTolerance)) {
+      if (cur_time < prev_time ) {
         printf(
             "[test_cached_clock_gettime][prev_cnt :%llu cnt: %llu ]"
             " [prev_time %llu cur_time    %llu sys_diff_time    %lld] "
@@ -391,17 +381,17 @@ int main() {
 
   gCTimeThread = new CTimeThread();
 
-  // for (int i = 0; i < 10; i++) {
-  //   std::thread tthread(test_cached_time, i);
-  //   tthread.detach();
-  // }
+  for (int i = 0; i < 10; i++) {
+    std::thread tthread(test_cached_time, i);
+    tthread.detach();
+  }
 
-  // for (int i = 0; i < 1; i++) {
-  //   std::thread tthread(test_cached_gettimeofday, i);
-  //   tthread.detach();
-  // }
+  for (int i = 0; i < 10; i++) {
+    std::thread tthread(test_cached_gettimeofday, i);
+    tthread.detach();
+  }
 
-  for (int i = 0; i < 1; i++) {
+  for (int i = 0; i < 10; i++) {
     std::thread tthread(test_cached_clock_gettime, i);
     tthread.detach();
   }
