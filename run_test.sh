@@ -10,7 +10,8 @@ echo ${basepath}
 
 root_path=`cd $(dirname $basepath/); pwd`
 
-cd ${root_path}/cpp_test/build
+mkdir -p ${root_path}/wangheng_cpp_test/build
+cd ${root_path}/wangheng_cpp_test/build
 echo ${root_path} 
 
 # cmake ..&&make&&  ./asm_vsyscall_test-64
@@ -32,6 +33,6 @@ cmake ..&&make
 # ./time_benchmark 3
 # ./time_thread  1000
 
-time ./cur_test
+time ./cur_test 3
 
 
