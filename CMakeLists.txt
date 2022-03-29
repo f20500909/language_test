@@ -6,11 +6,11 @@ add_compile_options(-g)
 
 add_compile_options(-std=c++11 )
 
-add_compile_options(-m32)
-set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -m32")
-set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m32")
-set(CMAKE_MODULE_LINKER_FLAGS  "${CMAKE_MODULE_LINKER_FLAGS} -m32")
-set(CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} -m32")
+# add_compile_options(-m32)
+# set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -m32")
+# set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m32")
+# set(CMAKE_MODULE_LINKER_FLAGS  "${CMAKE_MODULE_LINKER_FLAGS} -m32")
+# set(CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} -m32")
 
 
 
@@ -29,6 +29,7 @@ include_directories(./evpp)
 # add_executable(cur_test test_time_cache.cc)
 # add_executable(cur_test cpu/sched_setaffinity.cpp)
 add_executable(cur_test ./gettimeofday/test_my_gettimeofday.cpp)
+# add_executable(cur_test ./gettimeofday/test.cpp)
 
 # link_directories(./lib)
 target_link_libraries(cur_test pthread )
