@@ -28,7 +28,7 @@ include_directories(./evpp)
 # add_executable(cur_test clock_gettime_test.cpp )
 # add_executable(cur_test test_time_cache.cc)
 # add_executable(cur_test cpu/sched_setaffinity.cpp)
-add_executable(cur_test ./gettimeofday/test.cpp)
+add_executable(cur_test ./gettimeofday/test_my_gettimeofday.cpp)
 
 # link_directories(./lib)
 target_link_libraries(cur_test pthread )

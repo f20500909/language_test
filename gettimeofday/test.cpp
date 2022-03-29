@@ -87,8 +87,6 @@ static int getcpuspeed() {
   return speed;
 }
 
-#define REGET_TIME_US 1
-
 //#define getcpuspeed() 2000
 
 #define TIME_ADD_US(a, usec)          \
@@ -114,7 +112,7 @@ static int getcpuspeed() {
 static int my_gettimeofday(struct timeval *tv) {
   uint64_t tick = 0;
   // max_time_us = max_ticks / cpuspeed_mhz > RELOAD_TIME_US us
-  static unsigned int max_ticks = 2000 * REGET_TIME_US;
+  static unsigned int max_ticks = 2000;
 
   if (walltime.tv_sec == 0 || cpuspeed_mhz == 0 ||
       // If we are on a different cpu with unsynchronized tsc,
@@ -124,7 +122,7 @@ static int my_gettimeofday(struct timeval *tv) {
       (tick = RDTSC() - walltick) > max_ticks) {
     if (tick == 0 || cpuspeed_mhz == 0) {
       cpuspeed_mhz = getcpuspeed();
-      max_ticks = cpuspeed_mhz * REGET_TIME_US;
+      max_ticks = cpuspeed_mhz;
     }
 
     gettimeofday(tv, NULL);
@@ -136,20 +134,77 @@ static int my_gettimeofday(struct timeval *tv) {
 
   memcpy(tv, &walltime, sizeof(walltime));
 
-  // if REGET_TIME_US==1, we are currently in the same us, no need to adjust tv
-#if REGET_TIME_US > 1
-  {
-    uint32_t t;
-    t = ((uint32_t)tick) / cpuspeed_mhz;
-    TIME_ADD_US(tv, t);
-  }
-#endif
-
   return 0;
 }
 
-int main(int argc, char *argv[]) {
+void compare_time_diff() {
+  unsigned int loops = 10 * 1000 * 1000;
   int i;
+  struct timeval t1, t2, t3;
+  int spd = getcpuspeed();
+
+  uint64_t max = 0, diff = 0, nr_diff1 = 0, nr_diff10 = 0;
+  uint64_t tsc = RDTSC();
+  int hastscp = 0;
+  uint32_t aux = 0;
+
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  CPU_SET(0, &set);
+
+  if ((hastscp = test_rdtscp())) {
+    printf("This machine supports rdtscp.\n");
+  } else {
+    printf("This machine does not support rdtscp.\n");
+  }
+
+  if (hastscp) {
+    printf("hastscp\n");
+    tsc = RDTSCP(aux);
+  } else {
+    printf("no hastscp\n");
+    tsc = RDTSC();
+  }
+
+  if (sched_setaffinity(0, sizeof(set), &set)) {
+    printf("failed to set affinity\n");
+  }
+
+  printf("tsc=%lu, aux=0x%x, cpu speed %d mhz\n", tsc, aux, spd);
+  printf("getspeed_010:%d\n", getcpuspeed_mhz(10 * 1000));
+  printf("getspeed_100:%d\n", getcpuspeed_mhz(100 * 1000));
+  printf("getspeed_500:%d\n", getcpuspeed_mhz(500 * 1000));
+
+  for (i = 0; i < loops; ++i) {
+#if 1
+    my_gettimeofday(&t1);
+#else
+    gettimeofday(&t1, NULL);
+#endif
+    gettimeofday(&t2, NULL);
+
+    if (timercmp(&t1, &t2, >)) {
+      timersub(&t1, &t2, &t3);
+    } else {
+      timersub(&t2, &t1, &t3);
+    }
+
+    // printf("t1=%u.%06u\t", t1.tv_sec, t1.tv_usec);
+    // printf("t2=%u.%06u\t", t2.tv_sec, t2.tv_usec);
+    // printf("diff=%u.%06u\n", t3.tv_sec, t3.tv_usec);
+
+    if (max < t3.tv_usec) max = t3.tv_usec;
+    if (t3.tv_usec > 1) ++nr_diff1;
+    if (t3.tv_usec > 10) ++nr_diff10;
+
+    diff += t3.tv_usec;
+    // if (i % 20 == 0) usleep((i%10)<<5);
+  }
+  printf("max diff=%lu, ave diff=%lu, diff1 count=%lu, diff10 count=%lu.\n",
+         max, diff / i, nr_diff1, nr_diff10);
+}
+
+int main(int argc, char *argv[]) {
   unsigned int loops = 10 * 1000 * 1000;
   struct timeval t1, t2, t3;
 
@@ -165,73 +220,12 @@ int main(int argc, char *argv[]) {
   }
 
   if (argv[1][0] == '1') {
-    int spd = getcpuspeed();
-
-    uint64_t max = 0, diff = 0, nr_diff1 = 0, nr_diff10 = 0;
-    uint64_t tsc = RDTSC();
-    int hastscp = 0;
-    uint32_t aux = 0;
-
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(0, &set);
-
-    if ((hastscp = test_rdtscp())) {
-      printf("This machine supports rdtscp.\n");
-    } else {
-      printf("This machine does not support rdtscp.\n");
-    }
-
-    if (hastscp) {
-      printf("hastscp\n");
-      tsc = RDTSCP(aux);
-    } else {
-      printf("no hastscp\n");
-      tsc = RDTSC();
-    }
-
-    if (sched_setaffinity(0, sizeof(set), &set)) {
-      printf("failed to set affinity\n");
-    }
-
-    printf("tsc=%lu, aux=0x%x, cpu speed %d mhz\n", tsc, aux, spd);
-    printf("getspeed_010:%d\n", getcpuspeed_mhz(10 * 1000));
-    printf("getspeed_100:%d\n", getcpuspeed_mhz(100 * 1000));
-    printf("getspeed_500:%d\n", getcpuspeed_mhz(500 * 1000));
-
-    for (i = 0; i < loops; ++i) {
-#if 1
-      my_gettimeofday(&t1);
-#else
-      gettimeofday(&t1, NULL);
-#endif
-      gettimeofday(&t2, NULL);
-
-      if (timercmp(&t1, &t2, >)) {
-        timersub(&t1, &t2, &t3);
-      } else {
-        timersub(&t2, &t1, &t3);
-      }
-
-      // printf("t1=%u.%06u\t", t1.tv_sec, t1.tv_usec);
-      // printf("t2=%u.%06u\t", t2.tv_sec, t2.tv_usec);
-      // printf("diff=%u.%06u\n", t3.tv_sec, t3.tv_usec);
-
-      if (max < t3.tv_usec) max = t3.tv_usec;
-      if (t3.tv_usec > 1) ++nr_diff1;
-      if (t3.tv_usec > 10) ++nr_diff10;
-
-      diff += t3.tv_usec;
-      // if (i % 20 == 0) usleep((i%10)<<5);
-    }
-    printf("max diff=%lu, ave diff=%lu, diff1 count=%lu, diff10 count=%lu.\n",
-           max, diff / i, nr_diff1, nr_diff10);
   } else if (argv[1][0] == '2') {
-    for (i = 0; i < loops; ++i) {
+    for (int i = 0; i < loops; ++i) {
       gettimeofday(&t1, NULL);
     }
   } else if (argv[1][0] == '3') {
-    for (i = 0; i < loops; ++i) {
+    for (int i = 0; i < loops; ++i) {
       my_gettimeofday(&t1);
     }
   }
