@@ -1,4 +1,3 @@
-
 #include <sched.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -147,7 +146,7 @@ static int getcpuspeed() {
 //    The good thing is that most multicore CPUs are shipped with sinchronized
 //    TSCs.
 //
-static uint64_t my_gettime_uint64() {
+static uint64_t get_uint64_time() {
   static __thread uint64_t cur_time = 0;
   static __thread uint64_t walltick = 0;
   static __thread int cpuspeed_mhz = 0;
@@ -158,7 +157,7 @@ static uint64_t my_gettime_uint64() {
   // RDTSC() may be smaller than walltick
   // in this case tick will be a negative number,
   // whose unsigned value is much larger than max_ticks
-  if (cur_time % uint64_t(1e9) == 0 || cpuspeed_mhz == 0 ||
+  if (cur_time == 0 || cpuspeed_mhz == 0 ||
       (tick = RDTSC() - walltick) > max_ticks) {
     if (tick == 0 || cpuspeed_mhz == 0) {
       cpuspeed_mhz = getcpuspeed();
@@ -177,7 +176,7 @@ unsigned int vdso_time(time_t *__timer) {
 #ifdef __i386__
   if (g_debug_time_cached_time) {
     if (!__timer) return 0;
-    transform_uint64_to_time(my_gettime_uint64(), *__timer);
+    transform_uint64_to_time(get_uint64_time(), *__timer);
     return *__timer;
   }
 #endif
@@ -187,7 +186,7 @@ unsigned int vdso_time(time_t *__timer) {
 int vdso_gettimeofday(timeval *tv) {
 #ifdef __i386__
   if (g_debug_time_cached_gettimeofday) {
-    transform_uint64_to_time(my_gettime_uint64(), *tv);
+    transform_uint64_to_time(get_uint64_time(), *tv);
     return 0;
   }
 #endif
@@ -195,12 +194,13 @@ int vdso_gettimeofday(timeval *tv) {
 }
 
 int vdso_clock_gettime(clockid_t __clock_id, struct timespec *tp) {
+// TODO implement __clock_id
 #ifdef __i386__
   if (g_debug_time_cached_clock_gettime) {
     if (CLOCK_REALTIME != __clock_id) {
       return ::clock_gettime(__clock_id, tp);
     } else {
-      transform_uint64_to_time(my_gettime_uint64(), *tp);
+      transform_uint64_to_time(get_uint64_time(), *tp);
       return 0;
     }
   }
@@ -494,11 +494,13 @@ void compare_time_diff(const std::string &type) {
 }
 
 int main() {
+  // =================测时间是否满足要求
   for (int i = 0; i < 3; i++) {
     compare_time_diff("system gettimeofday");
     compare_time_diff("custom gettimeofday");
   }
 
+  // =================测接口
   // auto func_list = {test_cached_gettimeofday};
   // auto func_list = {test_cached_time, test_cached_gettimeofday};
   auto func_list = {test_cached_time, test_cached_gettimeofday,

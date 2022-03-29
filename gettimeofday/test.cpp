@@ -138,7 +138,7 @@ static int my_gettimeofday(struct timeval *tv) {
 }
 
 void compare_time_diff() {
-  unsigned int loops = 10 * 1000 * 1000;
+  unsigned int loops = 1000 * 1000 * 1000;
   int i;
   struct timeval t1, t2, t3;
   int spd = getcpuspeed();
@@ -205,7 +205,7 @@ void compare_time_diff() {
 }
 
 int main(int argc, char *argv[]) {
-  unsigned int loops = 10 * 1000 * 1000;
+  uint64_t loops = 10000 * 1000 * 1000;
   struct timeval t1, t2, t3;
 
   if (argc < 2) {
