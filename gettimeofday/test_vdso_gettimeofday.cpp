@@ -1,3 +1,5 @@
+#include <assert.h>
+#include <fcntl.h>
 #include <sched.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -5,6 +7,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include <unistd.h>
 
 // 日志
 int g_debug_show_more_log = 0;
@@ -13,6 +16,8 @@ int g_debug_time_cached_time = 1;
 int g_debug_time_cached_clock_gettime = 1;
 int g_debug_time_cached_gettimeofday = 1;
 uint64_t g_debug_print_frequfency = 1e9;
+
+int g_max_ticks_multi = 400;
 
 //一毫秒 = 1 * 1000 * 1000;
 int g_cached_nsec_tolerance = 1 * 600 * 1000;
@@ -93,47 +98,75 @@ static inline int test_rdtscp() {
   return (edx & (1U << 27));
 }
 
-/*
- * Returns CPU clock in mhz
- * Notice that the function will cost the calling thread to sleep wait_us us
- */
-static inline int getcpuspeed_mhz(unsigned int wait_us) {
-  uint64_t tsc1, tsc2;
-  struct timespec t;
+// read_cpu_frequency() is modified from source code of glibc.
+int64_t read_cpu_frequency(bool *invariant_tsc) {
+  /* We read the information from the /proc filesystem.  It contains at
+     least one line like
+     cpu MHz         : 497.840237
+     or also
+     cpu MHz         : 497.841
+     We search for this line and convert the number in an integer.  */
 
-  t.tv_sec = 0;
-  t.tv_nsec = wait_us * 1000;
-
-  tsc1 = RDTSC();
-
-  // If sleep failed, result is unexpected
-  if (nanosleep(&t, NULL)) {
-    return -1;
+  const int fd = open("/proc/cpuinfo", O_RDONLY);
+  if (fd < 0) {
+    return 0;
   }
 
-  tsc2 = RDTSC();
+  int64_t result = 0;
+  char buf[4096];  // should be enough
+  const ssize_t n = read(fd, buf, sizeof(buf));
+  if (n > 0) {
+    char *mhz = static_cast<char *>(memmem(buf, n, "cpu MHz", 7));
 
-  return (tsc2 - tsc1) / (wait_us);
-}
+    if (mhz != NULL) {
+      char *endp = buf + n;
+      int seen_decpoint = 0;
+      int ndigits = 0;
 
-static int getcpuspeed() {
-  static int speed = -1;
+      /* Search for the beginning of the string.  */
+      while (mhz < endp && (*mhz < '0' || *mhz > '9') && *mhz != '\n') {
+        ++mhz;
+      }
+      while (mhz < endp && *mhz != '\n') {
+        if (*mhz >= '0' && *mhz <= '9') {
+          result *= 10;
+          result += *mhz - '0';
+          if (seen_decpoint) ++ndigits;
+        } else if (*mhz == '.') {
+          seen_decpoint = 1;
+        }
+        ++mhz;
+      }
 
-  while (speed < 100) {
-    speed = getcpuspeed_mhz(50 * 1000);
+      /* Compensate for missing digits at the end.  */
+      while (ndigits++ < 6) {
+        result *= 10;
+      }
+    }
+
+    if (invariant_tsc) {
+      char *flags_pos = static_cast<char *>(memmem(buf, n, "flags", 5));
+      *invariant_tsc =
+          (flags_pos &&
+           memmem(flags_pos, buf + n - flags_pos, "constant_tsc", 12) &&
+           memmem(flags_pos, buf + n - flags_pos, "nonstop_tsc", 11));
+    }
   }
-
-  return speed;
+  close(fd);
+  return result;
 }
 
-#define TIME_ADD_US(a, usec)          \
-  do {                                \
-    (a)->tv_usec += usec;             \
-    while ((a)->tv_usec >= 1000000) { \
-      (a)->tv_sec++;                  \
-      (a)->tv_usec -= 1000000;        \
-    }                                 \
-  } while (0)
+// Returns CPU clock in mhz
+// Return value must be >= 0.
+int64_t read_invariant_cpu_frequency() {
+  bool invariant_tsc = false;
+  const int64_t freq = read_cpu_frequency(&invariant_tsc);
+  if (!invariant_tsc || freq < 0) {
+    assert(false);
+    return 0;
+  }
+  return freq / uint64_t(1e6);
+}
 
 // Compile with -O2 to optimize mul/div instructions
 // The performance is restricted by 2 factors:
@@ -149,25 +182,25 @@ static int getcpuspeed() {
 static uint64_t get_uint64_time() {
   static __thread uint64_t cur_time = 0;
   static __thread uint64_t walltick = 0;
-  static __thread int cpuspeed_mhz = 0;
-  static __thread unsigned int max_ticks = 2000;
-  uint64_t tick = 0;
+  static __thread uint64_t max_ticks = 2000;
+  static __thread uint64_t cpuspeed_mhz = read_invariant_cpu_frequency();
+  static __thread uint64_t tick = 0;
+  static __thread struct timespec tp;
 
   // If we are on a different cpu with unsynchronized tsc,
   // RDTSC() may be smaller than walltick
   // in this case tick will be a negative number,
   // whose unsigned value is much larger than max_ticks
-  if (cur_time == 0 || cpuspeed_mhz == 0 ||
-      (tick = RDTSC() - walltick) > max_ticks) {
-    if (tick == 0 || cpuspeed_mhz == 0) {
-      cpuspeed_mhz = getcpuspeed();
-      max_ticks = cpuspeed_mhz;
+  if (cur_time == 0 || (tick = RDTSC() - walltick) > max_ticks) {
+    if (tick == 0) {
+      max_ticks = cpuspeed_mhz * g_max_ticks_multi;
     }
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    cur_time = transform_time_to_uint64(tv);
+    clock_gettime(CLOCK_REALTIME, &tp);
+    cur_time = transform_time_to_uint64(tp);
     walltick = RDTSC();
   }
+
+  // printf("max_ticks %lld ,walltick %lld \r\n", max_ticks, walltick);
 
   return cur_time;
 }
@@ -424,6 +457,40 @@ void test_cached_clock_gettime(int cpu_id) {
   }
 }
 
+/*
+ * Returns CPU clock in mhz
+ * Notice that the function will cost the calling thread to sleep wait_us us
+ */
+static inline int getcpuspeed_mhz(unsigned int wait_us) {
+  uint64_t tsc1, tsc2;
+  struct timespec t;
+
+  t.tv_sec = 0;
+  t.tv_nsec = wait_us * 1000;
+
+  tsc1 = RDTSC();
+
+  // If sleep failed, result is unexpected
+  if (nanosleep(&t, NULL)) {
+    return -1;
+  }
+
+  tsc2 = RDTSC();
+
+  return (tsc2 - tsc1) / (wait_us);
+}
+
+static int getcpuspeed() {
+  int speed = -1;
+
+  while (speed < 100) {
+    speed = getcpuspeed_mhz(50 * 1000);
+  }
+  printf("getcpuspeed..\r\n");
+
+  return speed;
+}
+
 void compare_time_diff(const std::string &type) {
   printf(
       "=================================compare_time_diff start "
@@ -432,7 +499,7 @@ void compare_time_diff(const std::string &type) {
   uint64_t loops = 10 * 1000 * 1000;
   int i;
   struct timeval t1, t2, t3;
-  int spd = getcpuspeed();
+  int spd = read_invariant_cpu_frequency();
 
   uint64_t max = 0, diff = 0, nr_diff10 = 0, nr_diff100 = 0, nr_diff500 = 0;
   uint64_t tsc = RDTSC();
@@ -493,18 +560,34 @@ void compare_time_diff(const std::string &type) {
       type.c_str());
 }
 
+void check_cpu_frequency() {
+  printf("getcpuspeed: %d ,read_invariant_cpu_frequency: %llu  \r\n",
+         getcpuspeed(), read_invariant_cpu_frequency());
+}
+
+void do_gettime_diff_check() {
+  while (true) {
+    struct timeval tv;
+    // vdso_gettimeofday(&tv);
+    ::gettimeofday(&tv, NULL);
+    // std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+}
+
 int main() {
   // =================测时间是否满足要求
+
   for (int i = 0; i < 3; i++) {
     compare_time_diff("system gettimeofday");
     compare_time_diff("custom gettimeofday");
   }
 
   // =================测接口
+  auto func_list = {test_cached_clock_gettime};
   // auto func_list = {test_cached_gettimeofday};
   // auto func_list = {test_cached_time, test_cached_gettimeofday};
-  auto func_list = {test_cached_time, test_cached_gettimeofday,
-                    test_cached_clock_gettime};
+  // auto func_list = {test_cached_time, test_cached_gettimeofday,
+  // test_cached_clock_gettime};
 
   int core_number = get_nprocs();
 
@@ -517,8 +600,8 @@ int main() {
   //  thread 6-7 : test_cached_clock_gettime
 
   int cpu_id = 1;
-  int thread_per_func = (core_number - 1) / func_list.size();
-  // int thread_per_func = 2;
+  // int thread_per_func = (core_number - 1) / func_list.size();
+  int thread_per_func = 1;
 
   // std::this_thread::sleep_for(std::chrono::seconds(uint64_t(1e9)));
 

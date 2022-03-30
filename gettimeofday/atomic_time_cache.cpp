@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -7,11 +8,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
-#include <errno.h>
 
-
-// 是否修复BUG的开关
-int gDebugFixBugTrigger = 1;
 
 // 是否显示CAS 冲突 的log日志
 int gDebugShowResolveConflictsTrigger = 0;
@@ -60,18 +57,6 @@ void do_sched_setaffinity(int cpu_id) {
   printf("   ====tid: %d cpu_id: %d\r\n", tid, cpu_id);  // 打印这是第几个线程
 
   return;
-}
-
-void showPlatform() {
-#ifdef __x86_64__
-  printf("__x86_64__\r\n");
-#elif __i386__
-  printf("__i386__\r\n");
-#endif
-  //   printf("sizeof(__time_t): %d,sizeof(__time_t):%d\r\n", sizeof(__time_t),
-  //          sizeof(__time_t));
-
-  printf("UINT64_MAX : %llu\r\n", UINT64_MAX);
 }
 
 uint64_t transform_time_to_uint64(const timeval &tv) {
@@ -164,9 +149,9 @@ void CTimeThread::do_update_time() {
   //        ((uint64_t)tp_realtime.tv_nsec / uint64_t(1e3)) % uint64_t(1e3));
 
   int time_diff = _time_realtime - _pre_time_realtime;
-  if (abs(time_diff) >= 800 * 1000) {
-    printf("[do_update_time] [time_diff: [%d] us] !!!\r\n", time_diff / 1000);
-  }
+  // if (abs(time_diff) >= 800 * 1000) {
+  //   printf("[do_update_time] [time_diff: [%d] us] !!!\r\n", time_diff / 1000);
+  // }
   // printf("[do_update_time] [time_diff: [%d]] \n", time_diff);
 }
 
@@ -176,9 +161,10 @@ void CTimeThread::run() {
     this->do_update_time();
     struct timespec ts;
     ts.tv_sec = 0;
-    ts.tv_nsec = 1;
+    ts.tv_nsec = _interval__nsec;
     assert(_interval__nsec <= 1e7);  // one millisecond
-    while ((-1 == nanosleep(&ts, &ts)) && (EINTR == errno));
+    // while ((-1 == nanosleep(&ts, &ts)) && (EINTR == errno))
+    //   ;
     //   ;
   }
 }
@@ -260,6 +246,19 @@ int cached_clock_gettime(clockid_t __clock_id, struct timespec *__tp) {
 #include <chrono>
 #include <mutex>
 #include <thread>
+
+
+void showPlatform() {
+#ifdef __x86_64__
+  printf("__x86_64__\r\n");
+#elif __i386__
+  printf("__i386__\r\n");
+#endif
+  //   printf("sizeof(__time_t): %d,sizeof(__time_t):%d\r\n", sizeof(__time_t),
+  //          sizeof(__time_t));
+
+  printf("UINT64_MAX : %llu\r\n", UINT64_MAX);
+}
 
 void test_cached_time(int cpu_id) {
   do_sched_setaffinity(cpu_id);
