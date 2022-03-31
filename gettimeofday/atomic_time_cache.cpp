@@ -15,7 +15,7 @@ int gDebugShowMoreLog = 0;
 int gDebugTimeCached_time = 1;
 int gDebugTimeCached_clock_gettime = 1;
 int gDebugTimeCached_gettimeofday = 1;
-uint64_t gDebugPrintFrequfency = 1e5;
+uint64_t gDebugPrintFrequfency = 1e9;
 
 //一毫秒 = 1 * 1000 * 1000;
 
@@ -154,7 +154,7 @@ void CTimeThread::run() {
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = 1;
-    while ((-1 == nanosleep(&ts, &ts)) && (EINTR == errno))
+    while (-1 == nanosleep(&ts, &ts))
       ;
   }
 }
@@ -163,7 +163,7 @@ time_t CTimeThread::cached_time(time_t *__timer) {
   uint64_t time_uint64 = 0;
   time_t t = 0;
 
-  __atomic_load(&this->_time_realtime, &time_uint64, __ATOMIC_ACQUIRE);
+  __atomic_load(&this->_time_realtime, &time_uint64, __ATOMIC_RELAXED);
   transform_uint64_to_time_t(time_uint64, t);
 
   if (__timer) *__timer = t;
@@ -173,7 +173,7 @@ time_t CTimeThread::cached_time(time_t *__timer) {
 int CTimeThread::cached_gettimeofday(timeval *tv) {
   assert(tv);
   uint64_t t = 0;
-  __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
+  __atomic_load(&this->_time_realtime, &t, __ATOMIC_RELAXED);
   if (0 == t) return -1;  // failure
   if (tv) transform_uint64_to_time(t, *tv);
 
@@ -187,12 +187,12 @@ int CTimeThread::cached_clock_gettime(clockid_t clock_id, struct timespec *tp) {
   uint64_t t = 0;
 
   if (CLOCK_MONOTONIC == clock_id) {
-    __atomic_load(&this->_time_monotonic, &t, __ATOMIC_ACQUIRE);
+    __atomic_load(&this->_time_monotonic, &t, __ATOMIC_RELAXED);
     if (0 == t) return -1;  // failure
     if (tp) transform_uint64_to_time(this->_time_monotonic, *tp);
     return 0;  // success
   } else if (CLOCK_REALTIME == clock_id) {
-    __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
+    __atomic_load(&this->_time_realtime, &t, __ATOMIC_RELAXED);
     if (0 == t) return -1;  // failure
     if (tp) transform_uint64_to_time(t, *tp);
     return 0;  // success
@@ -262,7 +262,6 @@ void test_cached_time(int cpu_id) {
 
   while (1) {
     cur_time = cached_time(&timer);
-    printf("timer: %d \r\n", timer);
     sys_cur_time = ::time(&timer);
 
     sys_diff_time = cur_time - sys_cur_time;
@@ -409,8 +408,8 @@ void test_cached_clock_gettime(int cpu_id) {
 int main() {
   showPlatform();
 
-  auto func_list = {test_cached_time};
-  // auto func_list = {test_cached_time, test_cached_gettimeofday};
+  // auto func_list = {test_cached_time};
+  auto func_list = {test_cached_time, test_cached_gettimeofday};
   // auto func_list = {test_cached_time, test_cached_gettimeofday,
   //                   test_cached_clock_gettime};
 
