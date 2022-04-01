@@ -134,17 +134,7 @@ void CTimeThread::do_update_time() {
   __atomic_store_n(&_time_realtime, transform_time_to_uint64(tp_realtime),
                    __ATOMIC_RELAXED);
 
-  // printf("[do_update_time] [_cur_time: [%llu-%llu] [%llu-%03u]] \r\n",
-  //        (uint64_t)tp_realtime.tv_sec, (uint64_t)tp_realtime.tv_nsec,
-  //        (uint64_t)tp_realtime.tv_nsec / uint64_t(1e6),
-  //        ((uint64_t)tp_realtime.tv_nsec / uint64_t(1e3)) % uint64_t(1e3));
-
   int time_diff = _time_realtime - _pre_time_realtime;
-  // if (abs(time_diff) >= 800 * 1000) {
-  //   printf("[do_update_time] [time_diff: [%d] us] !!!\r\n", time_diff /
-  //   1000);
-  // }
-  // printf("[do_update_time] [time_diff: [%d]] \n", time_diff);
 }
 
 void CTimeThread::run() {
@@ -163,7 +153,7 @@ time_t CTimeThread::cached_time(time_t *__timer) {
   uint64_t time_uint64 = 0;
   time_t t = 0;
 
-  __atomic_load(&this->_time_realtime, &time_uint64, __ATOMIC_RELAXED);
+  __atomic_load(&this->_time_realtime, &time_uint64, __ATOMIC_ACQUIRE);
   transform_uint64_to_time_t(time_uint64, t);
 
   if (__timer) *__timer = t;
@@ -173,7 +163,7 @@ time_t CTimeThread::cached_time(time_t *__timer) {
 int CTimeThread::cached_gettimeofday(timeval *tv) {
   assert(tv);
   uint64_t t = 0;
-  __atomic_load(&this->_time_realtime, &t, __ATOMIC_RELAXED);
+  __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
   if (0 == t) return -1;  // failure
   if (tv) transform_uint64_to_time(t, *tv);
 
@@ -187,12 +177,12 @@ int CTimeThread::cached_clock_gettime(clockid_t clock_id, struct timespec *tp) {
   uint64_t t = 0;
 
   if (CLOCK_MONOTONIC == clock_id) {
-    __atomic_load(&this->_time_monotonic, &t, __ATOMIC_RELAXED);
+    __atomic_load(&this->_time_monotonic, &t, __ATOMIC_ACQUIRE);
     if (0 == t) return -1;  // failure
     if (tp) transform_uint64_to_time(this->_time_monotonic, *tp);
     return 0;  // success
   } else if (CLOCK_REALTIME == clock_id) {
-    __atomic_load(&this->_time_realtime, &t, __ATOMIC_RELAXED);
+    __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
     if (0 == t) return -1;  // failure
     if (tp) transform_uint64_to_time(t, *tp);
     return 0;  // success
@@ -423,6 +413,7 @@ int main() {
   //  thread 4-5 : test_cached_gettimeofday
   //  thread 6-7 : test_cached_clock_gettime
 
+  // std::this_thread::sleep_for(std::chrono::seconds(uint64_t(1e9)));
   int cpu_id = 1;
   // int thread_per_func = (core_number - 1) / func_list.size();
   int thread_per_func = 1;
