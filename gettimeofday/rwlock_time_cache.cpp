@@ -19,64 +19,14 @@ uint64_t gDebugPrintFrequfency = 1e9;
 
 //一毫秒 = 1 * 1000 * 1000;
 
-int gCachedNsecTolerance = 1000 * 1000;
+int gCachedNsecTolerance = 100000 * 1000;
+int g_test_cached_time_sleep_nsec = 100 * 1000;
 
 template <typename TYPE, void (TYPE::*Run)()>
 void *thread_rounter(void *param) {
   TYPE *p = (TYPE *)param;
   p->run();
   return NULL;
-}
-
-void do_sched_setaffinity(int cpu_id) {
-  cpu_set_t mask;   // cpu核的集合
-  CPU_ZERO(&mask);  // 将集合置为空集
-
-  CPU_SET(cpu_id, &mask);  // 设置亲和力值
-
-  int tid = syscall(SYS_gettid);
-
-  if (sched_setaffinity(tid, sizeof(cpu_set_t), &mask) ==
-      -1)  // 设置线程cpu亲和力
-  {
-    printf("warning: could not set CPU affinity, continuing...\n");
-    assert(false);
-    return;
-  }
-  struct timespec ts;
-  ts.tv_sec = 1;
-  ts.tv_nsec = 100000000;
-
-  while ((-1 == nanosleep(&ts, &ts)))
-    ;
-  printf("   ====tid: %d cpu_id: %d\r\n", tid, cpu_id);  // 打印这是第几个线程
-
-  return;
-}
-
-uint64_t transform_time_to_uint64(const timeval &tv) {
-  return uint64_t(tv.tv_sec) * uint64_t(1e9) +
-         uint64_t(tv.tv_usec) * uint64_t(1e3);
-}
-
-uint64_t transform_time_to_uint64(const timespec &tp) {
-  return uint64_t(tp.tv_sec) * uint64_t(1e9) + uint64_t(tp.tv_nsec);
-}
-
-void transform_uint64_to_time(uint64_t time_uint64, timespec &tp) {
-  tp.tv_sec = time_uint64 / uint64_t(1e9);
-  tp.tv_nsec = time_uint64 % uint64_t(1e9);
-}
-
-void transform_uint64_to_time(uint64_t time_uint64, timeval &tv) {
-  tv.tv_sec = time_uint64 / uint64_t(1e9);
-  tv.tv_usec = (time_uint64 % uint64_t(1e9)) / (uint64_t(1e3));
-  return;
-}
-
-void transform_uint64_to_time_t(uint64_t time_uint64, time_t &t) {
-  t = time_uint64 / uint64_t(1e9);
-  return;
 }
 
 // use cache to reduce system call in i386
@@ -96,11 +46,17 @@ class CTimeThread {
   void do_update_time();
 
   pthread_t _thread;
-  pthread_rwlock_t rwlock;             //声明读写锁
+  pthread_rwlock_t _tv_rwlock;
+  pthread_rwlock_t _tp_monotonic_rwlock;
+  pthread_rwlock_t _tp_realtime_rwlock;
 
-  uint64_t _time_monotonic = 0;
-  uint64_t _time_realtime = 0;
-  uint64_t _pre_time_realtime = 0;
+  struct timeval _tv;
+  struct timezone _tz;
+  timespec _tp_monotonic;
+  timespec _tp_realtime;
+
+  uint64_t _update_time_cnt = 0;
+  uint64_t _sleep_interval = uint64_t(1 * 1e1);
 };
 
 CTimeThread::CTimeThread() {
@@ -110,9 +66,9 @@ CTimeThread::CTimeThread() {
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-	pthread_rwlock_init(&rwlock, NULL);   //初始化读写锁
-
-
+  pthread_rwlock_init(&_tv_rwlock, NULL);            //初始化读写锁
+  pthread_rwlock_init(&_tp_realtime_rwlock, NULL);   //初始化读写锁
+  pthread_rwlock_init(&_tp_monotonic_rwlock, NULL);  //初始化读写锁
 
   int errcode = pthread_create(&_thread, &attr,
                                thread_rounter<CTimeThread, &CTimeThread::run>,
@@ -125,65 +81,52 @@ CTimeThread::CTimeThread() {
 CTimeThread::~CTimeThread() {}
 
 void CTimeThread::do_update_time() {
-  timespec tp_monotonic;
-  timespec tp_realtime;
+  pthread_rwlock_wrlock(&_tv_rwlock);  // write lock
+  ::gettimeofday(&_tv, NULL);
+  pthread_rwlock_unlock(&_tv_rwlock);  // unlock write lock
 
+  pthread_rwlock_wrlock(&_tp_realtime_rwlock);  // write lock
+  ::clock_gettime(CLOCK_REALTIME, &_tp_realtime);
+  pthread_rwlock_unlock(&_tp_realtime_rwlock);  // unlock write lock
 
-  	pthread_rwlock_wrlock(&rwlock);      //写者加写锁
-	
-	
-
-
-  // TODO merge two clock_gettime to one syscall
-  syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &tp_monotonic);
-  syscall(__NR_clock_gettime, CLOCK_REALTIME, &tp_realtime);
-
-  __atomic_store_n(&_time_monotonic, transform_time_to_uint64(tp_monotonic),
-                   __ATOMIC_RELAXED);
-
-  if (_time_realtime > 0) _pre_time_realtime = _time_realtime;
-  __atomic_store_n(&_time_realtime, transform_time_to_uint64(tp_realtime),
-                   __ATOMIC_RELAXED);
-
-	pthread_rwlock_unlock(&rwlock);      //释放写锁
-
-  int time_diff = _time_realtime - _pre_time_realtime;
+  pthread_rwlock_wrlock(&_tp_monotonic_rwlock);  // write lock
+  ::clock_gettime(CLOCK_MONOTONIC, &_tp_monotonic);
+  pthread_rwlock_unlock(&_tp_monotonic_rwlock);  // unlock write lock
 }
 
 void CTimeThread::run() {
-  do_sched_setaffinity(0);
+  // do_sched_setaffinity(0);
   while (true) {
     this->do_update_time();
-    struct timespec ts;
-    ts.tv_sec = 0;
-    ts.tv_nsec = 1;
-    while (-1 == nanosleep(&ts, &ts))
-      ;
+
+    if ((_update_time_cnt % _sleep_interval) == 0) {
+      // printf("_update_time_cnt %d\r\n",_update_time_cnt);
+      struct timespec ts;
+      ts.tv_sec = 0;
+      ts.tv_nsec = g_test_cached_time_sleep_nsec;  // 100 us
+      nanosleep(&ts, &ts);
+    }
+    _update_time_cnt++;
   }
 }
 
 time_t CTimeThread::cached_time(time_t *__timer) {
-  uint64_t time_uint64 = 0;
   time_t t = 0;
+  pthread_rwlock_rdlock(&_tv_rwlock);  // read lock
+  t = static_cast<time_t>(_tv.tv_sec);
+  pthread_rwlock_unlock(&_tv_rwlock);  // unlock read lock
 
-
-	pthread_rwlock_rdlock(&rwlock);    //读者加读锁
-	
-
-  __atomic_load(&this->_time_realtime, &time_uint64, __ATOMIC_ACQUIRE);
-  transform_uint64_to_time_t(time_uint64, t);
-
-	pthread_rwlock_unlock(&rwlock);    //读者释放读锁
   if (__timer) *__timer = t;
   return t;
 }
 
 int CTimeThread::cached_gettimeofday(timeval *tv) {
   assert(tv);
-  uint64_t t = 0;
-  __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
-  if (0 == t) return -1;  // failure
-  if (tv) transform_uint64_to_time(t, *tv);
+  if (!tv) return -1;  // failure
+
+  pthread_rwlock_rdlock(&_tv_rwlock);  // read lock
+  *tv = _tv;
+  pthread_rwlock_unlock(&_tv_rwlock);  // unlock read lock
 
   return 0;  // success
 }
@@ -192,19 +135,18 @@ int CTimeThread::cached_clock_gettime(clockid_t clock_id, struct timespec *tp) {
   assert(tp);
   if (!tp) return -1;  // failure
 
-  uint64_t t = 0;
-
-  if (CLOCK_MONOTONIC == clock_id) {
-    __atomic_load(&this->_time_monotonic, &t, __ATOMIC_ACQUIRE);
-    if (0 == t) return -1;  // failure
-    if (tp) transform_uint64_to_time(this->_time_monotonic, *tp);
-    return 0;  // success
-  } else if (CLOCK_REALTIME == clock_id) {
-    __atomic_load(&this->_time_realtime, &t, __ATOMIC_ACQUIRE);
-    if (0 == t) return -1;  // failure
-    if (tp) transform_uint64_to_time(t, *tp);
-    return 0;  // success
+  if (CLOCK_REALTIME == clock_id) {
+    pthread_rwlock_rdlock(&_tp_realtime_rwlock);  // read lock
+    *tp = _tp_realtime;
+    pthread_rwlock_unlock(&_tp_realtime_rwlock);  // unlock read lock
+    return 0;                                     // success
+  } else if (CLOCK_MONOTONIC == clock_id) {
+    pthread_rwlock_rdlock(&_tp_monotonic_rwlock);  // read lock
+    *tp = _tp_monotonic;
+    pthread_rwlock_unlock(&_tp_monotonic_rwlock);  // unlock read lock
+    return 0;                                      // success
   }
+
   return ::clock_gettime(clock_id, tp);
 }
 
@@ -245,6 +187,54 @@ int cached_clock_gettime(clockid_t __clock_id, struct timespec *__tp) {
 #include <mutex>
 #include <thread>
 
+uint64_t transform_time_to_uint64(const timeval &tv) {
+  return uint64_t(tv.tv_sec) * uint64_t(1e9) +
+         uint64_t(tv.tv_usec) * uint64_t(1e3);
+}
+
+uint64_t transform_time_to_uint64(const timespec &tp) {
+  return uint64_t(tp.tv_sec) * uint64_t(1e9) + uint64_t(tp.tv_nsec);
+}
+
+void transform_uint64_to_time(uint64_t time_uint64, timespec &tp) {
+  tp.tv_sec = time_uint64 / uint64_t(1e9);
+  tp.tv_nsec = time_uint64 % uint64_t(1e9);
+}
+
+void transform_uint64_to_time(uint64_t time_uint64, timeval &tv) {
+  tv.tv_sec = time_uint64 / uint64_t(1e9);
+  tv.tv_usec = (time_uint64 % uint64_t(1e9)) / (uint64_t(1e3));
+  return;
+}
+
+void transform_uint64_to_time_t(uint64_t time_uint64, time_t &t) {
+  t = time_uint64 / uint64_t(1e9);
+  return;
+}
+
+void do_sched_setaffinity(int cpu_id) {
+  cpu_set_t mask;
+  CPU_ZERO(&mask);
+
+  CPU_SET(cpu_id, &mask);
+
+  int tid = syscall(SYS_gettid);
+
+  if (sched_setaffinity(tid, sizeof(cpu_set_t), &mask) == -1) {
+    printf("warning: could not set CPU affinity, continuing...\n");
+    assert(false);
+    return;
+  }
+  struct timespec ts;
+  ts.tv_sec = 0;
+  ts.tv_nsec = 100000000;
+
+  while ((-1 == nanosleep(&ts, &ts)))
+    ;
+  // printf("   ====tid: %d cpu_id: %d\r\n", tid, cpu_id);
+
+  return;
+}
 void showPlatform() {
 #ifdef __x86_64__
   printf("__x86_64__\r\n");
@@ -353,7 +343,7 @@ void test_cached_gettimeofday(int cpu_id) {
       printf("[test_cached_gettimeofday][cpu_id:%d] cnt: %llu\r\n", cpu_id,
              cnt);
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 }
 
@@ -413,13 +403,80 @@ void test_cached_clock_gettime(int cpu_id) {
   }
 }
 
+void compare_time_diff(const std::string &type) {
+  printf(
+      "=================================compare_time_diff start "
+      "[%s]=================================\r\n",
+      type.c_str());
+  uint64_t loops = 1 * 1000;
+  int i;
+  struct timeval t1, t2, t3;
+
+  uint64_t max = 0, diff = 0, nr_diff_p1 = 0, nr_diff_p2 = 0, nr_diff_p3 = 0;
+
+  int hastscp = 0;
+
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  CPU_SET(0, &set);
+
+  // if (sched_setaffinity(1, sizeof(set), &set)) {
+  //   printf("failed to set affinity\n");
+  //   assert(false);
+  // }
+
+  for (i = 0; i < loops; ++i) {
+    if (type == "system gettimeofday") {
+      ::gettimeofday(&t1, NULL);
+    } else if (type == "custom gettimeofday") {
+      cached_gettimeofday(&t1);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));  // 主动让出cpu
+
+    ::gettimeofday(&t2, NULL);
+
+    if (timercmp(&t1, &t2, >)) {
+      timersub(&t1, &t2, &t3);
+    } else {
+      timersub(&t2, &t1, &t3);
+    }
+
+    // printf("t1=%u.%06u\t", t1.tv_sec, t1.tv_usec);
+    // printf("t2=%u.%06u\t", t2.tv_sec, t2.tv_usec);
+    // printf("diff=%u.%06u\n", t3.tv_sec, t3.tv_usec);
+
+    if (max < t3.tv_usec) max = t3.tv_usec;
+    if (t3.tv_usec > 12 * 100) ++nr_diff_p1;
+    if (t3.tv_usec > 15 * 100) ++nr_diff_p2;
+    if (t3.tv_usec > 20 * 100) ++nr_diff_p3;
+
+    diff += t3.tv_usec;
+    // if (i % 20 == 0) usleep((i%10)<<5);
+  }
+  printf(
+      "[total cnt=%llu][max diff=%llu us] [ave diff=%llu us] [1.2ms diff "
+      "count=%llu ] "
+      "[1.5ms diff count=%llu ] [2.0ms diff count=%llu ]\n",
+      loops, max, diff / loops, nr_diff_p1, nr_diff_p2, nr_diff_p3);
+  printf(
+      "=================================compare_time_diff end "
+      "[%s]=================================\r\n\r\n",
+      type.c_str());
+}
+
 int main() {
   showPlatform();
+  // =================测时间是否满足要求
+
+  // for (int i = 0; i < 100; i++) {
+  //   compare_time_diff("system gettimeofday");
+  //   compare_time_diff("custom gettimeofday");
+  // }
 
   // auto func_list = {test_cached_time};
-  auto func_list = {test_cached_time, test_cached_gettimeofday};
-  // auto func_list = {test_cached_time, test_cached_gettimeofday,
-  //                   test_cached_clock_gettime};
+  // auto func_list = {test_cached_gettimeofday};
+  auto func_list = {test_cached_time, test_cached_gettimeofday,
+                    test_cached_clock_gettime};
 
   int core_number = get_nprocs();
 

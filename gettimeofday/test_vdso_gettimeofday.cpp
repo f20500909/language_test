@@ -17,7 +17,7 @@ int g_debug_time_cached_clock_gettime = 1;
 int g_debug_time_cached_gettimeofday = 1;
 uint64_t g_debug_print_frequfency = 1e9;
 
-int g_max_ticks_multi = 400;
+int g_max_ticks_multi = 150;
 
 //一毫秒 = 1 * 1000 * 1000;
 int g_cached_nsec_tolerance = 1 * 600 * 1000;
@@ -205,7 +205,7 @@ static uint64_t get_uint64_time() {
   return cur_time;
 }
 
-unsigned int vdso_time(time_t *__timer) {
+unsigned int cached_time(time_t *__timer) {
 #ifdef __i386__
   if (g_debug_time_cached_time) {
     if (!__timer) return 0;
@@ -216,7 +216,7 @@ unsigned int vdso_time(time_t *__timer) {
   return ((unsigned int)::time(__timer));
 };
 
-int vdso_gettimeofday(timeval *tv) {
+int cached_gettimeofday(timeval *tv) {
 #ifdef __i386__
   if (g_debug_time_cached_gettimeofday) {
     transform_uint64_to_time(get_uint64_time(), *tv);
@@ -226,7 +226,7 @@ int vdso_gettimeofday(timeval *tv) {
   return ::gettimeofday(tv, NULL);
 }
 
-int vdso_clock_gettime(clockid_t __clock_id, struct timespec *tp) {
+int cached_clock_gettime(clockid_t __clock_id, struct timespec *tp) {
 // TODO implement __clock_id
 #ifdef __i386__
   if (g_debug_time_cached_clock_gettime) {
@@ -309,7 +309,7 @@ void test_cached_time(int cpu_id) {
   time_t timer;
 
   while (1) {
-    cur_time = vdso_time(&timer);
+    cur_time = cached_time(&timer);
     sys_cur_time = ::time(&timer);
 
     sys_diff_time = cur_time - sys_cur_time;
@@ -357,8 +357,8 @@ void test_cached_gettimeofday(int cpu_id) {
     }
     sys_cur_time = transform_time_to_uint64(tv);
 
-    if (vdso_gettimeofday(&tv) != 0) {
-      printf("!!!!!!!!!! vdso_gettimeofday error!\r\n");
+    if (cached_gettimeofday(&tv) != 0) {
+      printf("!!!!!!!!!! cached_gettimeofday error!\r\n");
       return;
     }
     cur_time = transform_time_to_uint64(tv);
@@ -413,13 +413,13 @@ void test_cached_clock_gettime(int cpu_id) {
   struct timespec ts;
   while (1) {
     if (::clock_gettime(CLOCK_REALTIME, &ts) != 0) {
-      printf("!!!!!!!!!! vdso_clock_gettime error!\r\n");
+      printf("!!!!!!!!!! cached_clock_gettime error!\r\n");
       return;
     }
     sys_cur_time = transform_time_to_uint64(ts);
 
-    if (vdso_clock_gettime(CLOCK_REALTIME, &ts) != 0) {
-      printf("!!!!!!!!!! vdso_clock_gettime error!\r\n");
+    if (cached_clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+      printf("!!!!!!!!!! cached_clock_gettime error!\r\n");
       return;
     }
     cur_time = transform_time_to_uint64(ts);
@@ -526,7 +526,7 @@ void compare_time_diff(const std::string &type) {
     if (type == "system gettimeofday") {
       ::gettimeofday(&t1, NULL);
     } else if (type == "custom gettimeofday") {
-      vdso_gettimeofday(&t1);
+      cached_gettimeofday(&t1);
     }
 
     ::gettimeofday(&t2, NULL);
@@ -568,7 +568,7 @@ void check_cpu_frequency() {
 void do_gettime_diff_check() {
   while (true) {
     struct timeval tv;
-    // vdso_gettimeofday(&tv);
+    // cached_gettimeofday(&tv);
     ::gettimeofday(&tv, NULL);
     // std::this_thread::sleep_for(std::chrono::microseconds(1));
   }

@@ -30,8 +30,11 @@ include_directories(./evpp)
 # add_executable(cur_test cpu/sched_setaffinity.cpp)
 # add_executable(cur_test ./gettimeofday/test_vdso_gettimeofday.cpp)
 # add_executable(cur_test ./gettimeofday/test.cpp)
-add_executable(cur_test ./gettimeofday/atomic_time_cache.cpp)
+# add_executable(cur_test ./gettimeofday/atomic_time_cache.cpp)
+# add_executable(cur_test ./gettimeofday/rwlock_time_cache.cpp)
 
+# add_executable(cur_test ./cpp_language/init_test.cpp)
+add_executable(cur_test ./cpp_language/strncpy_test.cpp)
 
 
 # link_directories(./lib)
