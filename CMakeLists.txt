@@ -34,7 +34,9 @@ include_directories(./evpp)
 # add_executable(cur_test ./gettimeofday/rwlock_time_cache.cpp)
 
 # add_executable(cur_test ./cpp_language/init_test.cpp)
-add_executable(cur_test ./cpp_language/strncpy_test.cpp)
+# add_executable(cur_test ./cpp_language/sprintf_test.cpp)
+# add_executable(cur_test ./cpp_language/return_func_test.cpp)
+add_executable(cur_test ./cpp_language/bad_stack_core.cpp)
 
 
 # link_directories(./lib)

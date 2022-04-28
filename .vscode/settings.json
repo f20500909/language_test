@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.INFO": "log",
+        "*.ERROR": "log",
+        "*.rule": "makefile",
+        "iostream": "cpp"
+    }
+}
