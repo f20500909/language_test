@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 2.8)
 project(temp_test CXX)
 
 
@@ -6,15 +6,14 @@ add_compile_options(-g)
 
 add_compile_options(-std=c++11 )
 
-add_compile_options(-m32)
-set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -m32")
-set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m32")
-set(CMAKE_MODULE_LINKER_FLAGS  "${CMAKE_MODULE_LINKER_FLAGS} -m32")
-set(CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} -m32")
+# add_compile_options(-m32)
+# set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -m32")
+# set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m32")
+# set(CMAKE_MODULE_LINKER_FLAGS  "${CMAKE_MODULE_LINKER_FLAGS} -m32")
+# set(CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} -m32")
 
 
 
-include_directories(/mnt/hgfs/main_work/temp_test/cpp_test/evpp) 
 include_directories(./evpp) 
 
 # add_executable(test_dns ./test_dns.cpp)
@@ -36,7 +35,7 @@ include_directories(./evpp)
 # add_executable(cur_test ./cpp_language/init_test.cpp)
 # add_executable(cur_test ./cpp_language/sprintf_test.cpp)
 # add_executable(cur_test ./cpp_language/return_func_test.cpp)
-add_executable(cur_test ./cpp_language/bad_stack_core.cpp)
+add_executable(cur_test  ./mult_thread/producer_consumer_1.cpp )
 
 
 # link_directories(./lib)
