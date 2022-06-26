@@ -35,7 +35,7 @@ include_directories(./evpp)
 # add_executable(cur_test ./cpp_language/init_test.cpp)
 # add_executable(cur_test ./cpp_language/sprintf_test.cpp)
 # add_executable(cur_test ./cpp_language/return_func_test.cpp)
-add_executable(cur_test  ./mult_thread/producer_consumer_1.cpp )
+add_executable(cur_test  ./mult_thread/producer_consumer_2.cpp )
 
 
 # link_directories(./lib)

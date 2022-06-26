@@ -9,9 +9,9 @@
 #include "time.h"
 
 //生产者数量
-#define PRODUCT_SIZE 20
+#define PRODUCT_SIZE 2
 //消费者数量
-#define CUSTOMER_SIZE 1
+#define CUSTOMER_SIZE 2
 //最大产品数量
 #define MAX_SIZE 10
 
@@ -26,19 +26,22 @@ void Producter()
 
     while (true)
     {
-        usleep(10);
+        usleep(1000000);
         std::unique_lock<std::mutex> lck(mut);
         while (que.size() > MAX_SIZE)
         {
 
             con.wait(lck);
         }
-        int data = rand();
-        que.push(data);
-        std::cout << std::this_thread::get_id() << "do produce：" << data << std::endl;
+        static int g_id = 1;
+        que.push(g_id++);
+        std::cout << std::this_thread::get_id() << " do produce：" << g_id << std::endl;
         con.notify_all();
     }
 }
+
+
+
 void Customer()
 {
     while (true)
@@ -48,7 +51,7 @@ void Customer()
         {
             con.wait(lck);
         }
-        std::cout << std::this_thread::get_id() << "do consume：" << que.front() << std::endl;
+        std::cout << std::this_thread::get_id() << " do consume：" << que.front() << std::endl;
         que.pop();
         con.notify_all();
     }
@@ -73,5 +76,3 @@ int main()
 
     return 0;
 }
-
-
