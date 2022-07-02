@@ -35,7 +35,8 @@ include_directories(./evpp)
 # add_executable(cur_test ./cpp_language/init_test.cpp)
 # add_executable(cur_test ./cpp_language/sprintf_test.cpp)
 # add_executable(cur_test ./cpp_language/return_func_test.cpp)
-add_executable(cur_test    ./temp_interview/interview_1.cpp )
+# add_executable(cur_test    ./temp_interview/interview_1.cpp )
+add_executable(cur_test    ./stl/my_string.cpp )
 
 
 # link_directories(./lib)
