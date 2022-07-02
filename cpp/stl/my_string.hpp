@@ -1,161 +1,205 @@
+/*
+
+*/
+
 #include <iostream>
+#include <memory>
 
-class string
+namespace std
 {
-
-    // (constructor) constructs a basic_string
-    void string()
+    template <class T>
+    class basic_string
     {
-    }
+    public:
+        // (constructor) constructs a basic_string
+        basic_string() : _len(0), _data(NULL)
+        {
+        }
 
-    // (destructor)
-    ~string()
-    {
-    }
+        basic_string(T *input)
+        {
+            if (NULL == input)
+            {
+                return;
+            }
+            if (this->_data)
+            {
+                free this->_data;
+            }
+            this->_data = input;
 
-    void operator=()
-    {
-    }
+            _len = 0;
+            T *cur = input;
+            while (*cur != '\0')
+            {
+                cur++;
+                this->_len++;
+            }
+        }
 
-    // destroys the string, deallocating internal storage if used
+        // (destructor)
+        ~basic_string()
+        {
+            free this->_data;
+            this->_len = 0;
+        }
 
-    void operator=()
-    {
-    }
+        // destroys the basic_string, deallocating internal storage if used
+        basic_string &operator=(const basic_string &o)
+        {
+            if (this == &o)
+            {
+                return *this;
+            }
+            if (this->_data != NUL)
+            {
+                free this->_data;
+                this->_data = NULL;
+                this->_len = 0;
+            }
+            this->_len = o.size();
+            this->_data = new T[this->_len + 1];
+            strcpy(this->_data, o.data());
+            return *this;
+        }
 
-    // assigns values to the string
+        // assigns values to the basic_string
+        void assign()
+        {
+        }
 
-    void assign()
-    {
-    }
+        // assign characters to a basic_string
+        get_allocator()
+        {
+        }
 
-    // assign characters to a string
-    get_allocator()
-    {
-    }
+        // Element access
+        T at(){
+            return }
 
-    // Element access
-    char at()
-    {
-    }
+        // accesses the specified character with bounds checking
+        T
+        operator[]
+        {
+        }
 
-    // accesses the specified character with bounds checking
-    char operator[]
-    {
-    }
+        // accesses the first character
+        T front()
+        {
+        }
 
-    accesses the first character
-        chaa
-        front()
-    {
-    }
+        // accesses the last character
+        T back()
+        {
+        }
 
-    // accesses the last character
+        // returns a pointer to the first character of a basic_string
+        T *data()
+        {
+        }
 
-    char back()
-    {
-    }
+        // returns a non-modifiable standard C character array version of the basic_string
+        T *c_str()
+        {
+        }
 
-    // returns a pointer to the first character of a string
-    char *data()
-    {
-    }
+        // returns an iterator to the beginning
+        T begin()
+        {
+        }
 
-    // returns a non-modifiable standard C character array version of the string
-    char *c_str()
-    {
-    }
+        // returns an iterator to the end
+        T end()
+        {
+        }
 
-    // returns an iterator to the beginning
-    T begin()
-    {
-    }
+        // checks whether the basic_string is empty
+        bool empty()
+        {
+            return this->_len == 0;
+        }
 
-    // returns an iterator to the end
-    T end()
-    {
-    }
+        // returns the number of characters
+        uint32_t size()
+        {
+            return this->_len ;
+        }
 
-    // checks whether the string is empty
-    bool empty()
-    {
-    }
+        // returns the maximum number of characters
+        uint32_t max_size()
+        {
+        }
 
-    returns the number of characters
-        uint32_t
-        size()
-    {
-    }
+        // returns the number of characters that can be held in currently allocated storage
+        uint32_t capacity()
+        {
+        }
 
-    returns the maximum number of characters
-        uint32_t
-        max_size()
-    {
-    }
+        // clears the contents
+        void clear()
+        {
+        }
 
-    reserve
+        // inserts characters
+        void insert()
+        {
+        }
 
-        reserves storage
+        // removes characters
+        void erase()
+        {
+        }
 
-            // returns the number of characters that can be held in currently allocated storage
-            uint32_t
-            capacity()
-    {
-    }
+        // appends a character to the end
+        void push_back()
+        {
+        }
 
-    // clears the contents
-    void clear()
-    {
-    }
+        // removes the last character
+        void pop_back()
+        {
+        }
 
-    // inserts characters
-    void insert()
-    {
-    }
+        // appends characters to the end
+        void append()
+        {
+        }
 
-    // removes characters
-    void erase()
-    {
-    }
+        // appends characters to the end
+        void operator+=()
+        {
+        }
 
-    // appends a character to the end
-    void push_back()
-    {
-    }
+        // compares two strings
+        bool compare()
+        {
+        }
 
-    // removes the last character
-    void pop_back()
-    {
-    }
+        friend ostream &operator<<(ostream &os, const basic_string &str)
+        {
+            os << str->_data << std::endl;
+            return os;
+        }
 
-    // appends characters to the end
-    void append()
-    {
-    }
+    private:
+        T *_data = NULL;
+        uint32_t _len = 0;
+    };
 
-    // appends characters to the end
-    void operator+=()
-    {
-    }
-
-    // compares two strings
-    bool compare()
-    {
-    }
-};
-
-//    concatenates two strings or a string and a char(function template)
-//    operator==
-//    operator!=
-//    operator<
-//    operator>
-//    operator<=
-//    operator>=
-//    operator<=>
+    //    concatenates two strings or a basic_string and a T(function template)
+    //    operator==
+    //    operator!=
+    //    operator<
+    //    operator>
+    //    operator<=
+    //    operator>=
+    //    operator<=>
+    using string = basic_string<char>;
+}
 
 int main()
 {
-    string str = "hello";
+    std::string str = "hello";
 
     return 0;
 }
