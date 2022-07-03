@@ -1,5 +1,7 @@
 /*
 reference: https://cplusplus.com/reference/string/basic_string/
+C++11 
+g++ (GCC) 4.8.5
 */
 #include <cassert>
 #include <cstring>
