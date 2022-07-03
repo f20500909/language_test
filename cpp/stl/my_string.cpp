@@ -16,7 +16,7 @@ static const size_t STRING_INIT_SIZE = 8;
 template <class T>
 class basic_string {
  public:
-  //  Construct string object
+  //  Construct
   basic_string();
 
   basic_string(T t);
@@ -59,8 +59,7 @@ class basic_string {
   // Return length of string
   const size_t size() const;
 
-  // Iterators:
-
+  //     Iterators:
   // Return iterator to beginning
   T *begin() const;
 
@@ -71,16 +70,18 @@ class basic_string {
   basic_string substr(size_t pos = 0, size_t len = npos);
 
   // Extract string from stream
+
   friend std::istream &operator>>(std::istream &os, basic_string &s);
 
   // Insert string into stream
   friend std::ostream &operator<<(std::ostream &os, const basic_string &s);
 
  private:
-  void copy_data(T *input_data, T *copy_start, size_t len = npos);
+  void append_data(T *input_data, T *copy_start, size_t len = npos);
 
   void deallocate();
 
+  // re alloc data : 8 16 32 64 
   void realloc(size_t len);
 
   size_t get_realloc_size(size_t len);
@@ -102,7 +103,7 @@ basic_string<T>::basic_string(const T *input) : basic_string((T *)input) {}
 template <class T>
 basic_string<T>::basic_string(T *input) {
   this->realloc(STRING_INIT_SIZE);
-  copy_data(input, this->begin());
+  append_data(input, this->begin());
   return;
 }
 
@@ -164,16 +165,16 @@ T basic_string<T>::at(size_t index) {
 template <class T>
 basic_string<T> &basic_string<T>::operator=(const basic_string<T> &str) {
   this->realloc(STRING_INIT_SIZE);
-  this->copy_data(str.begin(), this->begin());
+  this->append_data(str.begin(), this->begin());
 }
 
 template <class T>
 basic_string<T> &basic_string<T>::operator+(const basic_string<T> &str) {
-  this->copy_data(str.begin(), this->end());
+  this->append_data(str.begin(), this->end());
 }
 
 template <class T>
-void basic_string<T>::copy_data(T *input_data, T *copy_start, size_t len) {
+void basic_string<T>::append_data(T *input_data, T *copy_start, size_t len) {
   assert(copy_start);
   assert(copy_start >= this->begin() && copy_start <= this->end());
 
@@ -201,6 +202,7 @@ void basic_string<T>::copy_data(T *input_data, T *copy_start, size_t len) {
     this->_begin = new_begin;
     this->_capacity = alloc_len;
   } else {
+    // emplace  back
     for (size_t i = 0; i < len; i++) {
       this->_alloc.construct(cur, input_data[i]);
       cur++;
@@ -324,7 +326,7 @@ basic_string<T> basic_string<T>::substr(size_t pos, size_t len) {
   }
   res.realloc(len + 1);
 
-  res.copy_data(this->begin() + pos, res.begin(), len);
+  res.append_data(this->begin() + pos, res.begin(), len);
   return res;
 }
 
@@ -337,7 +339,7 @@ std::istream &operator>>(std::istream &os, my_std::string &s) {
 
   os >> temp_str;
   int len = strlen(temp_str);
-  s.copy_data(temp_str, s.begin());
+  s.append_data(temp_str, s.begin());
 
   return os;
 }
