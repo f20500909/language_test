@@ -11,9 +11,12 @@ reference: https://cplusplus.com/reference/string/basic_string/
 namespace my_std {
 
 static const size_t npos = -1;
+static const size_t STRING_INIT_SIZE = 8;
+
 template <class T>
 class basic_string {
  public:
+  //  Construct string object
   basic_string();
 
   basic_string(T t);
@@ -25,7 +28,7 @@ class basic_string {
   // String destructor
   basic_string(T t, size_t n);
 
-  // (destructor)
+  // destructor
   ~basic_string();
 
   T &operator[](size_t index);
@@ -35,19 +38,25 @@ class basic_string {
   // String assignment
   basic_string &operator=(const basic_string &str);
 
+  // Concatenate strings
   basic_string &operator+(const basic_string &str);
 
+  // Get character in string
   T at(size_t index);
 
+  // Get character in string
   const T at(size_t index) const;
 
+  // Get C string equivalent
   const char *c_str() const;
 
   // Find first occurrence in string
   int find(const basic_string &input);
 
+  // Return size of allocated storage
   size_t capacity();
 
+  // Return length of string
   const size_t size() const;
 
   // Iterators:
@@ -58,10 +67,13 @@ class basic_string {
   // Return iterator to end
   T *end() const;
 
+  // Generate substring
   basic_string substr(size_t pos = 0, size_t len = npos);
 
+  // Extract string from stream
   friend std::istream &operator>>(std::istream &os, basic_string &s);
 
+  // Insert string into stream
   friend std::ostream &operator<<(std::ostream &os, const basic_string &s);
 
  private:
@@ -81,7 +93,7 @@ class basic_string {
 
 template <class T>
 basic_string<T>::basic_string() {
-  this->realloc(0);
+  this->realloc(STRING_INIT_SIZE);
 }
 
 template <class T>
@@ -89,7 +101,7 @@ basic_string<T>::basic_string(const T *input) : basic_string((T *)input) {}
 
 template <class T>
 basic_string<T>::basic_string(T *input) {
-  this->realloc(0);
+  this->realloc(STRING_INIT_SIZE);
   copy_data(input, this->begin());
   return;
 }
@@ -151,7 +163,7 @@ T basic_string<T>::at(size_t index) {
 
 template <class T>
 basic_string<T> &basic_string<T>::operator=(const basic_string<T> &str) {
-  this->realloc(8);
+  this->realloc(STRING_INIT_SIZE);
   this->copy_data(str.begin(), this->begin());
 }
 
@@ -171,6 +183,7 @@ void basic_string<T>::copy_data(T *input_data, T *copy_start, size_t len) {
   T *cur = copy_start;
   size_t need_size = copy_start - this->begin() + len + 1;
 
+  // need realloc ?
   if (need_size > this->capacity()) {
     size_t alloc_len = this->get_realloc_size(need_size);
 
@@ -207,17 +220,17 @@ void basic_string<T>::deallocate() {
   this->_end = NULL;
   this->_capacity = 0;
 
-  this->_begin = _alloc.allocate(8);
+  this->_begin = _alloc.allocate(STRING_INIT_SIZE);
   this->_end = this->begin();
-  this->_capacity = 8;
+  this->_capacity = STRING_INIT_SIZE;
 }
 
 template <class T>
 size_t basic_string<T>::get_realloc_size(size_t len) {
   // 8 16 32 64 128...
-  size_t res = 8;
+  size_t res = STRING_INIT_SIZE;
   while (res <= len) {
-    len *= 2;
+    res *= 2;
   }
   return res;
 }
@@ -240,7 +253,10 @@ const char *basic_string<T>::c_str() const {
 
 template <class T>
 basic_string<T>::~basic_string() {
-  this->deallocate();
+  this->_alloc.deallocate(this->begin(), this->capacity());
+  this->_begin = NULL;
+  this->_end = NULL;
+  this->_capacity = 0;
 }
 
 template <class T>
@@ -252,17 +268,6 @@ const size_t basic_string<T>::size() const {
   return this->end() - this->begin() - 1;
 }
 
-// Non-member function overloads
-// relational operators
-// Relational operators for basic_string (function template )
-// swap
-// Exchanges the values of two strings (function template )
-
-// getline
-// Get line from stream into string (function template )
-
-// operator+
-// Concatenate strings (function template )
 template <class T>
 bool operator==(const basic_string<T> &a, const basic_string<T> &b) {
   if (a.size() != b.size()) {
@@ -385,6 +390,7 @@ int main() {
 
   str2 = "worldxxxxxxxxxxxxxx";
   std::cout << "['worldxxxxxxxxxxxxxx'] str2: " << str2
+            << " str2.size(): " << str2.size()
             << " str2.capacity(): " << str2.capacity() << std::endl;
 
   std::cout << "input data to test : func: operator>>" << std::endl;
