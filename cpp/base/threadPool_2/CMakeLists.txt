@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0)
+project(main)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -march=native -O3 -pthread -lpthread")
+#add_executable(main temp.cpp)
+#add_executable(main eat_think.cpp)
+add_executable(main ThreadPool.cpp)
