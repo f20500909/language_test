@@ -71,8 +71,14 @@ void quickSort3(vector<int> &data, int left, int right) {
 
 int main() {
 
-    vector<int> data = {4, 7, 8, 3, 1, 1, 2, 6, 5};
+    vector<int> data;
+    int len = 100;
+    for(int i=0; i<len; i++){
+        data.push_back(rand()%100);
+    }
+
     print(data);
+
 //    bubleSort(data);
     quickSort3(data, 0, data.size() - 1);
 //    selectSort(data);
