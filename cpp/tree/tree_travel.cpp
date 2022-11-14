@@ -23,6 +23,7 @@ public:
         st.push(cur);
         while(!st.empty()){
              cur = st.top(), st.pop(), res.push_back(cur->val); //根
+
             if(cur->right) st.push(cur->right); // 右
             if(cur->left) st.push(cur->left); // 左
         }
@@ -49,8 +50,15 @@ public:
             cur = st.top();
             st.pop();
             res.push_back(cur->val);
+
             cur = cur->right;
         }
         return res;
     }
 };
+
+
+
+
+
+
