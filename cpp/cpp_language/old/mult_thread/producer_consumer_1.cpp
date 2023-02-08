@@ -29,6 +29,7 @@ void Producter() {
     }
     static int g_id = 1;
     q.push(g_id++);
+    usleep(100);
     std::cout << std::this_thread::get_id()
               << "=================== do produce：" << g_id << std::endl;
     con.notify_all();

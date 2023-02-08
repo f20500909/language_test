@@ -13,7 +13,6 @@ void insertSort(vector<int> &data) {
     }
 }
 
-
 //插入排序 数组前部是有序的  需要从无序数组中选一个有序的元素插入到有序部分 从而增加有序部分的长度
 void insertSort2(vector<int> &data) {
     //前面是有序的 后面是无序的
