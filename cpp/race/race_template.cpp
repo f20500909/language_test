@@ -206,6 +206,16 @@ void cpp_test() {
   count_if(data.begin(), data.end(), [&](auto&& d) { return d > 2; });
 }
 
+bool is_prime(int val ){
+  if(val<=1) return false;
+  int t = 2;
+  while(t*t<val){
+    if(val%t == 0) return false;
+    t++;
+  }
+  return true; 
+}
+
 void get_primes(int maxV) {
   // 求出maxV中的所有质数
   // 素数列表
@@ -228,6 +238,20 @@ void get_primes(int maxV) {
     }
   }
 }
+
+// red blue search :
+
+/*
+
+l = -1, r= N
+while(l+1 !=r){
+  m = l+ (r-l)/2; 
+  if(isBlue(m)) l = m;
+  else r = m
+}
+return l or r
+
+*/
 
 int main() {
   cout << "a b c d.." << endl;

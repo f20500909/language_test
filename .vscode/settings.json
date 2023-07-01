@@ -90,5 +90,6 @@
         "semaphore": "cpp",
         "syncstream": "cpp"
     },
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "cmake.sourceDirectory": "/root/main_work/language_test/bk"
 }

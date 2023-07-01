@@ -2,6 +2,7 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
+using namespace std;
 
 class semaphore {
  public:
@@ -21,6 +22,27 @@ class semaphore {
   std::mutex mx;
   std::condition_variable cond;
   long count;
+};
+
+class my_sem {
+  my_sem() {}
+
+  // operation v
+  void wait() {
+    unique_lock<mutex> lk(mtx);
+    cond.wait(lk, [&]() { return cnt > 0; });
+    cnt--;
+  }
+
+  // operation p
+  void do_next() {
+    unique_lock<mutex> lk(mtx);
+    cnt++;
+    cond.notify_one();
+  }
+  mutex mtx;
+  condition_variable cond;
+  int cnt = 0;
 };
 
 semaphore sem(0);
