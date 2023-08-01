@@ -1,6 +1,18 @@
 import socket
 from socket import *
 from time import ctime
+import random
+ 
+def generate_random_str(randomlength=16):
+    """
+    生成一个指定长度的随机字符串
+    """
+    random_str = ''
+    base_str = 'abcdefghigklmnopqrstuvwxyz1234567890'
+    length = len(base_str) - 1
+    for i in range(randomlength):
+        random_str += base_str[random.randint(0, length)]
+    return random_str
 
 
 BUFSIZ = 1024  #接收数据缓冲大小
@@ -11,9 +23,9 @@ server_addr_s = ('10.14.46.6',5063)
 udpSerSock = socket(AF_INET, SOCK_DGRAM) #创建udp服务器套接字
 udpSerSock.bind(local_addr)  #套接字与地址绑定
 
-branch
+branch="z9hG4bK-524287-1---"+generate_random_str(16)
 send_data_publish_to_p = bytes(f'''PUBLISH sip:88116000040@ims.mnc008.mcc468.3gppnetwork.org;transport=UDP SIP/2.0\r\n\
-Via: SIP/2.0/UDP 10.8.13.114:43642;branch=z9hG4bK-524287-1---f6f2efaf328b566d\r\n\
+Via: SIP/2.0/UDP 10.8.13.114:43642;branch={branch}\r\n\
 Max-Forwards: 70\r\n\
 Route: <sip:orig@5gscscf.ims.mnc008.mcc468.3gppnetwork.org:5063;lr>\r\n\
 Contact: <sip:88116000040@10.8.13.114:43642;transport=UDP>\r\n\
